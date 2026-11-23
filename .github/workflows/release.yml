@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Check the tag and publish the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check that the tag is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the format, lint and test
+        run: |
+          npm run format:check
+          npm run lint
+          npm test
+
+      - name: Check that dist/ is a fresh build
+        run: |
+          npm run package
+          if [ -n "$(git status --porcelain -- dist/)" ]; then
+            git diff --text -- dist/
+            echo "::error::dist/ differs from a fresh build"
+            exit 1
+          fi
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+
+      - name: Move the major tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          major="${GITHUB_REF_NAME%%.*}"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$major" --silent 2>/dev/null; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$major" -f sha="$GITHUB_SHA" -F force=true --silent
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$major" -f sha="$GITHUB_SHA" --silent
+          fi

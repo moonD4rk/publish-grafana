@@ -1,0 +1,58 @@
+{
+  "name": "publish-grafana",
+  "description": "A GitHub Action that keeps a dashboard's listing on grafana.com in step with the files in a repository",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moond4rk/publish-grafana.git"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "prettier": {
+    "proseWrap": "never"
+  },
+  "jest": {
+    "clearMocks": true,
+    "collectCoverage": true,
+    "collectCoverageFrom": [
+      "src/**"
+    ],
+    "coverageReporters": [
+      "text"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "lines": 90
+      }
+    }
+  },
+  "scripts": {
+    "all": "npm run format && npm run lint && npm test && npm run package",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "local": "node --env-file=.env src/index.js",
+    "package": "node --eval \"fs.rmSync('dist', { recursive: true, force: true })\" && rollup --config rollup.config.js",
+    "test": "NODE_OPTIONS=--experimental-vm-modules NODE_NO_WARNINGS=1 jest"
+  },
+  "dependencies": {
+    "@actions/core": "^3.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@jest/globals": "^30.2.0",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "eslint": "^10.15.0",
+    "eslint-plugin-jest": "^29.13.0",
+    "globals": "^17.14.0",
+    "jest": "^30.2.0",
+    "prettier": "^3.8.1",
+    "rollup": "^4.57.1",
+    "rollup-plugin-license": "^3.7.2"
+  }
+}

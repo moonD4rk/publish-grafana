@@ -1,0 +1,31 @@
+name: Bug report
+description: The action did something it should not have
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected and what you got instead
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow step
+      description: The step that uses the action, without secrets
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: The step's log, with the request ID if grafana.com answered with an error
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The tag or the commit of the action
+    validations:
+      required: true
