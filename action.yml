@@ -1,0 +1,63 @@
+name: Publish dashboard to grafana.com
+description: Keeps a dashboard's listing on grafana.com in step with the files in your repository
+author: moonD4rk
+
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  dashboard-id:
+    description: The dashboard's ID on grafana.com
+    required: true
+  token:
+    description: A Grafana Cloud access policy token with the dashboards:write scope. Without it the run is a dry run
+    required: false
+  dashboard-file:
+    description: The dashboard JSON, published as a new revision when it differs from the latest one
+    required: false
+  name:
+    description: The listing's name
+    required: false
+  description:
+    description: The listing's short description
+    required: false
+  readme-file:
+    description: A Markdown file for the listing's README
+    required: false
+  screenshots:
+    description: Image files or globs, one per line, in the order to show them
+    required: false
+  logo:
+    description: A PNG or JPEG file for the listing's logo, uploaded when it differs from the listing's. An SVG is uploaded only when the listing has none
+    required: false
+  categories:
+    description: Category slugs, one per line, such as docker or hostmetrics
+    required: false
+  collector-type:
+    description: "The collector that feeds the dashboard: collectd, nodeExporter, Snap, Telegraf, Beats, Icinga or Other"
+    required: false
+  collector-plugins:
+    description: The collector's plugins, one per line
+    required: false
+  collector-config:
+    description: A text on how to set the collector up
+    required: false
+  dry-run:
+    description: true reports what would change and publishes nothing, even with a token
+    required: false
+    default: "false"
+
+outputs:
+  changed:
+    description: true when the run published something, or would have in a dry run
+  changes:
+    description: "What changed, comma-separated: revision, name, description, readme, screenshots, logo, categories, collector-type, collector-plugins, collector-config"
+  revision:
+    description: The latest revision number after the run
+  url:
+    description: The dashboard's page on grafana.com
+
+runs:
+  using: node24
+  main: dist/index.js

@@ -1,0 +1,15 @@
+name: Feature request
+description: Something the action should do
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot do today, or what is harder than it should be
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      description: What the action should do, and the inputs or outputs it would take
