@@ -1,8 +1,8 @@
 import * as os from 'os';
-import os__default from 'os';
-import 'crypto';
+import os__default, { EOL } from 'os';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { promises } from 'fs';
+import { promises, constants as constants$5 } from 'fs';
 import 'path';
 import http from 'http';
 import https from 'https';
@@ -32,6 +32,8 @@ import require$$1$5 from 'node:dns';
 import require$$5$3 from 'string_decoder';
 import 'child_process';
 import 'timers';
+import { globSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -152,6 +154,36 @@ function escapeProperty(s) {
         .replace(/\n/g, '%0A')
         .replace(/:/g, '%3A')
         .replace(/,/g, '%2C');
+}
+
+// For internal use, subject to change.
+// We use any as a valid input type
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function issueFileCommand(command, message) {
+    const filePath = process.env[`GITHUB_${command}`];
+    if (!filePath) {
+        throw new Error(`Unable to find environment variable for file command ${command}`);
+    }
+    if (!fs.existsSync(filePath)) {
+        throw new Error(`Missing file at path: ${filePath}`);
+    }
+    fs.appendFileSync(filePath, `${toCommandValue(message)}${os.EOL}`, {
+        encoding: 'utf8'
+    });
+}
+function prepareKeyValueMessage(key, value) {
+    const delimiter = `ghadelimiter_${crypto.randomUUID()}`;
+    const convertedValue = toCommandValue(value);
+    // These should realistically never happen, but just in case someone finds a
+    // way to exploit uuid generation let's not allow keys or values that contain
+    // the delimiter.
+    if (key.includes(delimiter)) {
+        throw new Error(`Unexpected input: name should not contain the delimiter "${delimiter}"`);
+    }
+    if (convertedValue.includes(delimiter)) {
+        throw new Error(`Unexpected input: value should not contain the delimiter "${delimiter}"`);
+    }
+    return `${key}<<${delimiter}${os.EOL}${convertedValue}${os.EOL}${delimiter}`;
 }
 
 var commonjsGlobal = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
@@ -24114,11 +24146,11 @@ function requireUtil$2 () {
 	return util$2;
 }
 
-var parse;
+var parse$1;
 var hasRequiredParse;
 
 function requireParse () {
-	if (hasRequiredParse) return parse;
+	if (hasRequiredParse) return parse$1;
 	hasRequiredParse = 1;
 
 	const { maxNameValuePairSize, maxAttributeValueSize } = requireConstants$1();
@@ -24425,11 +24457,11 @@ function requireParse () {
 	  return parseUnparsedAttributes(unparsedAttributes, cookieAttributeList)
 	}
 
-	parse = {
+	parse$1 = {
 	  parseSetCookie,
 	  parseUnparsedAttributes
 	};
-	return parse;
+	return parse$1;
 }
 
 var cookies;
@@ -28606,7 +28638,7 @@ var MediaTypes;
     });
 };
 
-(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28616,6 +28648,268 @@ var MediaTypes;
     });
 };
 const { access, appendFile, writeFile } = promises;
+const SUMMARY_ENV_VAR = 'GITHUB_STEP_SUMMARY';
+class Summary {
+    constructor() {
+        this._buffer = '';
+    }
+    /**
+     * Finds the summary file path from the environment, rejects if env var is not found or file does not exist
+     * Also checks r/w permissions.
+     *
+     * @returns step summary file path
+     */
+    filePath() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (this._filePath) {
+                return this._filePath;
+            }
+            const pathFromEnv = process.env[SUMMARY_ENV_VAR];
+            if (!pathFromEnv) {
+                throw new Error(`Unable to find environment variable for $${SUMMARY_ENV_VAR}. Check if your runtime environment supports job summaries.`);
+            }
+            try {
+                yield access(pathFromEnv, constants$5.R_OK | constants$5.W_OK);
+            }
+            catch (_a) {
+                throw new Error(`Unable to access summary file: '${pathFromEnv}'. Check if the file has correct read/write permissions.`);
+            }
+            this._filePath = pathFromEnv;
+            return this._filePath;
+        });
+    }
+    /**
+     * Wraps content in an HTML tag, adding any HTML attributes
+     *
+     * @param {string} tag HTML tag to wrap
+     * @param {string | null} content content within the tag
+     * @param {[attribute: string]: string} attrs key-value list of HTML attributes to add
+     *
+     * @returns {string} content wrapped in HTML element
+     */
+    wrap(tag, content, attrs = {}) {
+        const htmlAttrs = Object.entries(attrs)
+            .map(([key, value]) => ` ${key}="${value}"`)
+            .join('');
+        if (!content) {
+            return `<${tag}${htmlAttrs}>`;
+        }
+        return `<${tag}${htmlAttrs}>${content}</${tag}>`;
+    }
+    /**
+     * Writes text in the buffer to the summary buffer file and empties buffer. Will append by default.
+     *
+     * @param {SummaryWriteOptions} [options] (optional) options for write operation
+     *
+     * @returns {Promise<Summary>} summary instance
+     */
+    write(options) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const overwrite = !!(options === null || options === void 0 ? void 0 : options.overwrite);
+            const filePath = yield this.filePath();
+            const writeFunc = overwrite ? writeFile : appendFile;
+            yield writeFunc(filePath, this._buffer, { encoding: 'utf8' });
+            return this.emptyBuffer();
+        });
+    }
+    /**
+     * Clears the summary buffer and wipes the summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    clear() {
+        return __awaiter(this, void 0, void 0, function* () {
+            return this.emptyBuffer().write({ overwrite: true });
+        });
+    }
+    /**
+     * Returns the current summary buffer as a string
+     *
+     * @returns {string} string of summary buffer
+     */
+    stringify() {
+        return this._buffer;
+    }
+    /**
+     * If the summary buffer is empty
+     *
+     * @returns {boolen} true if the buffer is empty
+     */
+    isEmptyBuffer() {
+        return this._buffer.length === 0;
+    }
+    /**
+     * Resets the summary buffer without writing to summary file
+     *
+     * @returns {Summary} summary instance
+     */
+    emptyBuffer() {
+        this._buffer = '';
+        return this;
+    }
+    /**
+     * Adds raw text to the summary buffer
+     *
+     * @param {string} text content to add
+     * @param {boolean} [addEOL=false] (optional) append an EOL to the raw text (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addRaw(text, addEOL = false) {
+        this._buffer += text;
+        return addEOL ? this.addEOL() : this;
+    }
+    /**
+     * Adds the operating system-specific end-of-line marker to the buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addEOL() {
+        return this.addRaw(EOL);
+    }
+    /**
+     * Adds an HTML codeblock to the summary buffer
+     *
+     * @param {string} code content to render within fenced code block
+     * @param {string} lang (optional) language to syntax highlight code
+     *
+     * @returns {Summary} summary instance
+     */
+    addCodeBlock(code, lang) {
+        const attrs = Object.assign({}, (lang && { lang }));
+        const element = this.wrap('pre', this.wrap('code', code), attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML list to the summary buffer
+     *
+     * @param {string[]} items list of items to render
+     * @param {boolean} [ordered=false] (optional) if the rendered list should be ordered or not (default: false)
+     *
+     * @returns {Summary} summary instance
+     */
+    addList(items, ordered = false) {
+        const tag = ordered ? 'ol' : 'ul';
+        const listItems = items.map(item => this.wrap('li', item)).join('');
+        const element = this.wrap(tag, listItems);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML table to the summary buffer
+     *
+     * @param {SummaryTableCell[]} rows table rows
+     *
+     * @returns {Summary} summary instance
+     */
+    addTable(rows) {
+        const tableBody = rows
+            .map(row => {
+            const cells = row
+                .map(cell => {
+                if (typeof cell === 'string') {
+                    return this.wrap('td', cell);
+                }
+                const { header, data, colspan, rowspan } = cell;
+                const tag = header ? 'th' : 'td';
+                const attrs = Object.assign(Object.assign({}, (colspan && { colspan })), (rowspan && { rowspan }));
+                return this.wrap(tag, data, attrs);
+            })
+                .join('');
+            return this.wrap('tr', cells);
+        })
+            .join('');
+        const element = this.wrap('table', tableBody);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds a collapsable HTML details element to the summary buffer
+     *
+     * @param {string} label text for the closed state
+     * @param {string} content collapsable content
+     *
+     * @returns {Summary} summary instance
+     */
+    addDetails(label, content) {
+        const element = this.wrap('details', this.wrap('summary', label) + content);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML image tag to the summary buffer
+     *
+     * @param {string} src path to the image you to embed
+     * @param {string} alt text description of the image
+     * @param {SummaryImageOptions} options (optional) addition image attributes
+     *
+     * @returns {Summary} summary instance
+     */
+    addImage(src, alt, options) {
+        const { width, height } = options || {};
+        const attrs = Object.assign(Object.assign({}, (width && { width })), (height && { height }));
+        const element = this.wrap('img', null, Object.assign({ src, alt }, attrs));
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML section heading element
+     *
+     * @param {string} text heading text
+     * @param {number | string} [level=1] (optional) the heading level, default: 1
+     *
+     * @returns {Summary} summary instance
+     */
+    addHeading(text, level) {
+        const tag = `h${level}`;
+        const allowedTag = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)
+            ? tag
+            : 'h1';
+        const element = this.wrap(allowedTag, text);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML thematic break (<hr>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addSeparator() {
+        const element = this.wrap('hr', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML line break (<br>) to the summary buffer
+     *
+     * @returns {Summary} summary instance
+     */
+    addBreak() {
+        const element = this.wrap('br', null);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML blockquote to the summary buffer
+     *
+     * @param {string} text quote text
+     * @param {string} cite (optional) citation url
+     *
+     * @returns {Summary} summary instance
+     */
+    addQuote(text, cite) {
+        const attrs = Object.assign({}, (cite && { cite }));
+        const element = this.wrap('blockquote', text, attrs);
+        return this.addRaw(element).addEOL();
+    }
+    /**
+     * Adds an HTML anchor tag to the summary buffer
+     *
+     * @param {string} text link text/content
+     * @param {string} href hyperlink
+     *
+     * @returns {Summary} summary instance
+     */
+    addLink(text, href) {
+        const element = this.wrap('a', text, { href });
+        return this.addRaw(element).addEOL();
+    }
+}
+const _summary = new Summary();
+const summary = _summary;
 
 (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -28699,6 +28993,38 @@ var ExitCode;
     ExitCode[ExitCode["Failure"] = 1] = "Failure";
 })(ExitCode || (ExitCode = {}));
 /**
+ * Registers a secret which will get masked from logs
+ *
+ * @param secret - Value of the secret to be masked
+ * @remarks
+ * This function instructs the Actions runner to mask the specified value in any
+ * logs produced during the workflow run. Once registered, the secret value will
+ * be replaced with asterisks (***) whenever it appears in console output, logs,
+ * or error messages.
+ *
+ * This is useful for protecting sensitive information such as:
+ * - API keys
+ * - Access tokens
+ * - Authentication credentials
+ * - URL parameters containing signatures (SAS tokens)
+ *
+ * Note that masking only affects future logs; any previous appearances of the
+ * secret in logs before calling this function will remain unmasked.
+ *
+ * @example
+ * ```typescript
+ * // Register an API token as a secret
+ * const apiToken = "abc123xyz456";
+ * setSecret(apiToken);
+ *
+ * // Now any logs containing this value will show *** instead
+ * console.log(`Using token: ${apiToken}`); // Outputs: "Using token: ***"
+ * ```
+ */
+function setSecret(secret) {
+    issueCommand('add-mask', {}, secret);
+}
+/**
  * Gets the value of an input.
  * Unless trimWhitespace is set to false in InputOptions, the value is also trimmed.
  * Returns an empty string if the value is not defined.
@@ -28717,6 +29043,56 @@ function getInput(name, options) {
     }
     return val.trim();
 }
+/**
+ * Gets the values of an multiline input.  Each value is also trimmed.
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   string[]
+ *
+ */
+function getMultilineInput(name, options) {
+    const inputs = getInput(name, options)
+        .split('\n')
+        .filter(x => x !== '');
+    return inputs.map(input => input.trim());
+}
+/**
+ * Gets the input value of the boolean type in the YAML 1.2 "core schema" specification.
+ * Support boolean input list: `true | True | TRUE | false | False | FALSE` .
+ * The return value is also in boolean type.
+ * ref: https://yaml.org/spec/1.2/spec.html#id2804923
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   boolean
+ */
+function getBooleanInput(name, options) {
+    const trueValue = ['true', 'True', 'TRUE'];
+    const falseValue = ['false', 'False', 'FALSE'];
+    const val = getInput(name, options);
+    if (trueValue.includes(val))
+        return true;
+    if (falseValue.includes(val))
+        return false;
+    throw new TypeError(`Input does not meet YAML 1.2 "Core Schema" specification: ${name}\n` +
+        `Support boolean input list: \`true | True | TRUE | false | False | FALSE\``);
+}
+/**
+ * Sets the value of an output.
+ *
+ * @param     name     name of the output to set
+ * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setOutput(name, value) {
+    const filePath = process.env['GITHUB_OUTPUT'] || '';
+    if (filePath) {
+        return issueFileCommand('OUTPUT', prepareKeyValueMessage(name, value));
+    }
+    process.stdout.write(os.EOL);
+    issueCommand('set-output', { name }, toCommandValue(value));
+}
 //-----------------------------------------------------------------------
 // Results
 //-----------------------------------------------------------------------
@@ -28728,6 +29104,13 @@ function getInput(name, options) {
 function setFailed(message) {
     process.exitCode = ExitCode.Failure;
     error(message);
+}
+/**
+ * Writes debug message to user log
+ * @param message debug message
+ */
+function debug(message) {
+    issueCommand('debug', {}, message);
 }
 /**
  * Adds an error issue
@@ -28745,13 +29128,484 @@ function error(message, properties = {}) {
 function warning(message, properties = {}) {
     issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+/**
+ * Writes info to log with console.log.
+ * @param message info message
+ */
+function info(message) {
+    process.stdout.write(message + os.EOL);
+}
 
-async function run() {
-  try {
-    const dashboardId = getInput("dashboard-id", { required: true });
-    warning(
-      `publish-grafana is not implemented yet: dashboard ${dashboardId} was neither read nor published`,
+const API = "https://grafana.com/api";
+const ATTEMPTS = 3;
+const TIMEOUT_MS = 30_000;
+
+class GrafanaError extends Error {
+  constructor(method, path, status, body) {
+    const { code, message, requestId } = body ?? {};
+    const detail = [code, message].filter(Boolean).join(": ") || "no details";
+    const request = requestId ? ` (request ${requestId})` : "";
+    super(
+      `grafana.com answered ${status} to ${method} ${path}: ${detail}${request}`,
     );
+    this.name = "GrafanaError";
+    this.status = status;
+    this.code = code;
+    this.requestId = requestId;
+  }
+}
+
+const retryable = (error) =>
+  !(error instanceof GrafanaError) ||
+  error.status === 429 ||
+  error.status >= 500;
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function createClient({
+  token,
+  fetch = globalThis.fetch,
+  wait = pause,
+} = {}) {
+  async function send(method, path) {
+    let response;
+    try {
+      response = await fetch(`${API}${path}`, {
+        method,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        redirect: "error",
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (error) {
+      const reason = error.cause?.message ?? error.message;
+      throw new Error(
+        `${method} ${path} did not reach grafana.com: ${reason}`,
+        { cause: error },
+      );
+    }
+    debug(`${method} ${path} -> ${response.status}`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new GrafanaError(method, path, response.status, body);
+    }
+    return response;
+  }
+
+  async function read(path) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await send("GET", path);
+      } catch (error) {
+        if (attempt === ATTEMPTS || !retryable(error)) throw error;
+        debug(`retrying: ${error.message}`);
+        await wait(attempt * 1000);
+      }
+    }
+  }
+
+  const json = async (path) => (await read(path)).json();
+  const bytes = async (path) =>
+    Buffer.from(await (await read(path)).arrayBuffer());
+
+  return {
+    listing: (id) => json(`/dashboards/${id}`),
+    screenshot: (id, imageId) =>
+      bytes(`/dashboards/${id}/images/${imageId}/image`),
+    logo: (id) => bytes(`/dashboards/${id}/logos/large`),
+    categories: async () =>
+      (await json("/categories")).items.map((category) => category.slug),
+  };
+}
+
+const BUILT_IN_DATA_SOURCES = new Set([
+  "-- Grafana --",
+  "-- Mixed --",
+  "-- Dashboard --",
+  "grafana",
+  "__expr__",
+]);
+
+function fixedDataSources(value, found = new Set()) {
+  if (Array.isArray(value)) {
+    for (const item of value) fixedDataSources(item, found);
+  } else if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      const uid = key === "datasource" ? (child?.uid ?? child) : undefined;
+      if (
+        typeof uid === "string" &&
+        !uid.startsWith("$") &&
+        !BUILT_IN_DATA_SOURCES.has(uid)
+      ) {
+        found.add(uid);
+      }
+      fixedDataSources(child, found);
+    }
+  }
+  return found;
+}
+
+function checkDashboard(dashboard) {
+  if (!dashboard || typeof dashboard !== "object" || Array.isArray(dashboard)) {
+    return { error: "is not a dashboard: its JSON is not an object" };
+  }
+  if ("apiVersion" in dashboard && "kind" in dashboard && "spec" in dashboard) {
+    return {
+      error:
+        "is a dashboard in the resource model (apiVersion, kind, spec), which grafana.com cannot share: export it from Grafana in the classic JSON model",
+    };
+  }
+  const fixed = [...fixedDataSources(dashboard)];
+  if (fixed.length === 0) return {};
+  return {
+    warning: `refers to a data source by a fixed UID (${fixed.join(", ")}), which another Grafana does not have: export the dashboard for sharing externally, or use a data source variable`,
+  };
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonical(value[key])]),
+  );
+}
+
+function comparable(dashboard) {
+  const copy = { ...dashboard };
+  delete copy.gnetId;
+  delete copy.description;
+  return JSON.stringify(canonical(copy));
+}
+
+const sameDashboard = (file, served) =>
+  comparable(file) === comparable(served);
+
+const COLLECTOR_TYPES = [
+  "collectd",
+  "nodeExporter",
+  "Snap",
+  "Telegraf",
+  "Beats",
+  "Icinga",
+  "Other",
+];
+const LOGO_TYPES = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+};
+const SCREENSHOT_TYPES = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+const MAX_SCREENSHOT_BYTES = 1024 * 1024;
+
+const workspace = () => process.env.GITHUB_WORKSPACE || process.cwd();
+
+function readFile(input, file) {
+  try {
+    return readFileSync(path.resolve(workspace(), file));
+  } catch (error) {
+    throw new Error(`${input}: cannot read ${file} (${error.code})`, {
+      cause: error,
+    });
+  }
+}
+
+function readImage(input, file, types) {
+  const type = types[path.extname(file).toLowerCase()];
+  if (!type) {
+    throw new Error(
+      `${input}: ${file} is not one of ${Object.keys(types).join(", ")}`,
+    );
+  }
+  return { path: file, type, bytes: readFile(input, file) };
+}
+
+function readDashboard(file) {
+  const bytes = readFile("dashboard-file", file);
+  let dashboard;
+  try {
+    dashboard = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    throw new Error(`dashboard-file: ${file} is not JSON: ${error.message}`, {
+      cause: error,
+    });
+  }
+  const { error, warning: warning$1 } = checkDashboard(dashboard);
+  if (error) throw new Error(`dashboard-file: ${file} ${error}`);
+  if (warning$1) warning(`${file} ${warning$1}`, { file, title: "Dashboard" });
+  return { path: file, type: "application/json", bytes, dashboard };
+}
+
+function readScreenshots(patterns) {
+  const cwd = workspace();
+  const isFile = (file) =>
+    statSync(path.resolve(cwd, file), { throwIfNoEntry: false })?.isFile();
+  const files = new Set();
+  for (const pattern of patterns) {
+    const matches = isFile(pattern)
+      ? [pattern]
+      : globSync(pattern, { cwd }).filter(isFile).sort();
+    if (matches.length === 0) {
+      throw new Error(`screenshots: no file matches ${pattern}`);
+    }
+    for (const match of matches) files.add(path.normalize(match));
+  }
+  return [...files].map((file) => {
+    const image = readImage("screenshots", file, SCREENSHOT_TYPES);
+    if (image.bytes.length > MAX_SCREENSHOT_BYTES) {
+      const size = (image.bytes.length / MAX_SCREENSHOT_BYTES).toFixed(1);
+      throw new Error(
+        `screenshots: ${file} is ${size} MiB, and grafana.com takes 1 MiB at most`,
+      );
+    }
+    return image;
+  });
+}
+
+function readLogo(file) {
+  const logo = readImage("logo", file, LOGO_TYPES);
+  return { ...logo, svg: logo.type === "image/svg+xml" };
+}
+
+function readCollectorType(value) {
+  const type = COLLECTOR_TYPES.find(
+    (known) => known.toLowerCase() === value.toLowerCase(),
+  );
+  if (!type) {
+    throw new Error(
+      `collector-type: "${value}" is not one of ${COLLECTOR_TYPES.join(", ")}`,
+    );
+  }
+  return type;
+}
+
+const readList = (input) => (items) => {
+  const comma = items.find((item) => item.includes(","));
+  if (comma)
+    throw new Error(`${input}: "${comma}" has a comma: put one per line`);
+  return [...new Set(items)];
+};
+
+const SOURCES = {
+  revision: { input: "dashboard-file", read: readDashboard },
+  name: { input: "name" },
+  description: { input: "description" },
+  readme: {
+    input: "readme-file",
+    read: (file) => readFile("readme-file", file).toString("utf8"),
+  },
+  screenshots: { input: "screenshots", lines: true, read: readScreenshots },
+  logo: { input: "logo", read: readLogo },
+  categories: {
+    input: "categories",
+    lines: true,
+    read: readList("categories"),
+  },
+  "collector-type": { input: "collector-type", read: readCollectorType },
+  "collector-plugins": {
+    input: "collector-plugins",
+    lines: true,
+    read: readList("collector-plugins"),
+  },
+  "collector-config": { input: "collector-config" },
+};
+
+function readInputs() {
+  const dashboardId = getInput("dashboard-id", { required: true });
+  if (!/^[1-9]\d*$/.test(dashboardId)) {
+    throw new Error(
+      `dashboard-id: "${dashboardId}" is not the number grafana.com gave the dashboard`,
+    );
+  }
+  const token = getInput("token");
+  if (token) setSecret(token);
+  const dryRun =
+    getInput("dry-run") !== "" && getBooleanInput("dry-run");
+
+  const wanted = {};
+  for (const [part, source] of Object.entries(SOURCES)) {
+    const value = source.lines
+      ? getMultilineInput(source.input)
+      : getInput(source.input);
+    if (value.length > 0) wanted[part] = source.read?.(value) ?? value;
+  }
+  if (Object.keys(wanted).length === 0) {
+    const inputs = Object.values(SOURCES).map((source) => source.input);
+    throw new Error(`nothing to publish: pass one of ${inputs.join(", ")}`);
+  }
+  return { dashboardId, token, dryRun: dryRun || !token, wanted };
+}
+
+function parse(listing, id) {
+  try {
+    return {
+      revision: listing.revision,
+      status: listing.statusCode,
+      url: `https://grafana.com/grafana/dashboards/${id}-${listing.slug}/`,
+      dashboard: listing.json,
+      name: listing.name,
+      description: listing.description,
+      readme: listing.readme,
+      images: listing.screenshots
+        .map((image) => image.id)
+        .sort((a, b) => a - b),
+      hasLogo: listing.hasLogo,
+      categories: listing.categories.items.map((item) => item.categorySlug),
+      collectorType: listing.collectorType,
+      collectorPlugins: listing.collectorPlugins.items.map((item) => item.name),
+      collectorConfig: listing.collectorConfig,
+    };
+  } catch (error) {
+    throw new Error(
+      `grafana.com's answer for dashboard ${id} is not what the action expects, so its API may have changed: ${error.message}`,
+      { cause: error },
+    );
+  }
+}
+
+async function readListing(client, id, wanted) {
+  const { images, ...current } = parse(await client.listing(id), id);
+  if (wanted.screenshots) {
+    current.screenshots = await Promise.all(
+      images.map(async (imageId) => ({
+        id: imageId,
+        bytes: await client.screenshot(id, imageId),
+      })),
+    );
+  }
+  if (wanted.logo && current.hasLogo) {
+    if (wanted.logo.svg) {
+      info(
+        "logo: grafana.com rewrites an SVG, so it cannot be compared and the listing's logo stays as it is",
+      );
+    } else {
+      current.logo = await client.logo(id);
+    }
+  }
+  return current;
+}
+
+async function checkCategories(client, wanted) {
+  const known = await client.categories();
+  const unknown = wanted.filter((slug) => !known.includes(slug));
+  if (unknown.length > 0) {
+    throw new Error(
+      `categories: grafana.com has no ${unknown.join(", ")}; it has ${known.join(", ")}`,
+    );
+  }
+}
+
+const normalize = (text) => (text ?? "").replace(/\r\n?/g, "\n").trim();
+
+const text = (field) => (wanted, current) =>
+  normalize(wanted) === normalize(current[field])
+    ? null
+    : [[field, normalize(wanted)]];
+
+const set = (field) => (wanted, current) =>
+  wanted.length === new Set(current[field]).size &&
+  wanted.every((item) => current[field].includes(item))
+    ? null
+    : [[field, wanted.join(",")]];
+
+// grafana.com lists a new image after the ones it holds, so only a leading run of the wanted list can stay
+function screenshots(files, current) {
+  const remove = [];
+  let kept = 0;
+  for (const image of current.screenshots) {
+    if (kept < files.length && image.bytes.equals(files[kept].bytes)) kept++;
+    else remove.push(image.id);
+  }
+  const upload = files.slice(kept).map((file) => ["screenshots", file]);
+  if (remove.length > 0)
+    upload.unshift(["screenshotsToRemove", remove.join(",")]);
+  return upload.length > 0 ? upload : null;
+}
+
+function logo(file, current) {
+  const same = file.svg || (current.logo && file.bytes.equals(current.logo));
+  return current.hasLogo && same ? null : [["logo", file]];
+}
+
+const DIFF = {
+  revision: (file, current) =>
+    sameDashboard(file.dashboard, current.dashboard) ? null : [["json", file]],
+  name: text("name"),
+  description: text("description"),
+  readme: text("readme"),
+  screenshots,
+  logo,
+  categories: set("categories"),
+  "collector-type": text("collectorType"),
+  "collector-plugins": set("collectorPlugins"),
+  "collector-config": text("collectorConfig"),
+};
+
+const PARTS = Object.keys(DIFF);
+
+const plan = (wanted, current) =>
+  PARTS.filter((part) => part in wanted).map((part) => ({
+    part,
+    change: DIFF[part](wanted[part], current),
+  }));
+
+async function report(entries, { dryRun, revision, url }) {
+  const changes = entries.filter((entry) => entry.change);
+  const published = "would publish" ;
+  const rows = entries.map(({ part, change }) => {
+    const outcome = change ? published : "unchanged";
+    info(`${part}: ${outcome}`);
+    return [part, outcome];
+  });
+
+  setOutput("changed", changes.length > 0);
+  setOutput("changes", changes.map((entry) => entry.part).join(","));
+  setOutput("revision", revision);
+  setOutput("url", url);
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await summary
+      .addHeading("Dry run: nothing was published" , 3)
+      .addTable([
+        [
+          { data: "Part", header: true },
+          { data: "Outcome", header: true },
+        ],
+        ...rows,
+      ])
+      .addLink(url, url)
+      .write();
+  }
+}
+
+async function run({ fetch } = {}) {
+  try {
+    const { dashboardId, token, dryRun, wanted } = readInputs();
+    const client = createClient({ token, fetch });
+    const current = await readListing(client, dashboardId, wanted);
+    const entries = plan(wanted, current);
+
+    if (entries.some(({ part, change }) => part === "categories" && change)) {
+      await checkCategories(client, wanted.categories);
+    }
+    if (current.status !== "active") {
+      warning(
+        `the listing is ${current.status}, so grafana.com does not show it yet`,
+      );
+    }
+    if (!dryRun) {
+      warning(
+        "publishing is not implemented yet: this run only reports what would change",
+      );
+    }
+    await report(entries, { ...current, dryRun: true });
   } catch (error) {
     setFailed(error instanceof Error ? error.message : String(error));
   }

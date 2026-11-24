@@ -105,3 +105,6 @@ jobs:
         with:
           dashboard-id: 26104
           dashboard-file: demo/dashboard.json
+          readme-file: demo/README.md
+          screenshots: demo/screenshots/*.png
+          logo: demo/logo.png
