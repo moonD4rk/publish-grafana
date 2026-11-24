@@ -13,7 +13,7 @@ const entries = [
 ];
 
 describe("report", () => {
-  afterEach(() => {
+  beforeEach(() => {
     delete process.env.GITHUB_STEP_SUMMARY;
   });
 
