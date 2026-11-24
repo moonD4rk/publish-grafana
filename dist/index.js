@@ -29129,6 +29129,14 @@ function warning(message, properties = {}) {
     issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
+ * Adds a notice issue
+ * @param message notice issue message. Errors will be converted to string via toString()
+ * @param properties optional properties to add to the annotation.
+ */
+function notice(message, properties = {}) {
+    issueCommand('notice', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
  * Writes info to log with console.log.
  * @param message info message
  */
@@ -29141,14 +29149,18 @@ const ATTEMPTS = 3;
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 120_000;
 
+const TOKEN_HINTS = {
+  401: "token: grafana.com does not accept it, so it may be mistyped, expired, revoked or too new to work yet",
+  403: "token: grafana.com does not let it do this, so its access policy may lack the dashboards:write scope or belong to another organization than the dashboard",
+};
+
 class GrafanaError extends Error {
-  constructor(method, path, status, body) {
+  constructor(method, path, status, body, hint) {
     const { code, message, requestId } = body ?? {};
     const detail = [code, message].filter(Boolean).join(": ") || "no details";
     const request = requestId ? ` (request ${requestId})` : "";
-    super(
-      `grafana.com answered ${status} to ${method} ${path}: ${detail}${request}`,
-    );
+    const answer = `grafana.com answered ${status} to ${method} ${path}: ${detail}${request}`;
+    super(hint ? `${hint}; ${answer}` : answer);
     this.name = "GrafanaError";
     this.status = status;
     this.code = code;
@@ -29201,7 +29213,8 @@ function createClient({
     debug(`${method} ${path} -> ${response.status}`);
     if (!response.ok) {
       const answer = await response.json().catch(() => null);
-      throw new GrafanaError(method, path, response.status, answer);
+      const hint = token && TOKEN_HINTS[response.status];
+      throw new GrafanaError(method, path, response.status, answer, hint);
     }
     return response;
   }
@@ -29264,8 +29277,20 @@ function parse(listing, id) {
   }
 }
 
+async function fetchListing(client, id) {
+  try {
+    return await client.listing(id);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    throw new Error(
+      `dashboard-id: grafana.com finds no dashboard ${id}. Use the number in the dashboard's URL, grafana.com/grafana/dashboards/<number>-…`,
+      { cause: error },
+    );
+  }
+}
+
 async function readListing(client, id, wanted) {
-  const { images, ...current } = parse(await client.listing(id), id);
+  const { images, ...current } = parse(await fetchListing(client, id), id);
   if (wanted.screenshots) {
     current.screenshots = await Promise.all(
       images.map(async (imageId) => ({
@@ -29350,54 +29375,160 @@ function canonical(value) {
   );
 }
 
-function comparable(dashboard) {
-  const copy = { ...dashboard };
-  delete copy.gnetId;
-  delete copy.description;
-  return JSON.stringify(canonical(copy));
-}
+const REWRITTEN = ["gnetId", "description"];
+
+const same = (a, b) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+
+const differing$1 = (file, served) =>
+  Object.keys({ ...served, ...file }).filter(
+    (field) =>
+      !REWRITTEN.includes(field) && !same(file[field], served?.[field]),
+  );
 
 const sameDashboard = (file, served) =>
-  comparable(file) === comparable(served);
+  differing$1(file, served).length === 0;
+
+const nested = (panels) =>
+  (panels ?? []).flatMap((panel) => [panel, ...(panel.panels ?? [])]);
+const key = (panel) => panel.id ?? panel.title;
+const own = (panel) => ({ ...panel, panels: undefined });
+
+function listed(panels) {
+  const names = panels.map(
+    (panel) => panel.title || `a ${panel.type ?? "panel"}`,
+  );
+  const more = names.length > 3 ? ` and ${names.length - 3} more` : "";
+  return names.slice(0, 3).join(", ") + more;
+}
+
+function panelChanges(file, served) {
+  const wanted = nested(file);
+  const held = new Map(nested(served).map((panel) => [key(panel), panel]));
+  const kept = new Set(wanted.map(key));
+  const groups = {
+    changed: wanted.filter(
+      (panel) =>
+        held.has(key(panel)) && !same(own(panel), own(held.get(key(panel)))),
+    ),
+    added: wanted.filter((panel) => !held.has(key(panel))),
+    removed: [...held.values()].filter((panel) => !kept.has(key(panel))),
+  };
+  const clauses = Object.entries(groups)
+    .filter(([, panels]) => panels.length > 0)
+    .map(([verb, panels]) => `panels ${verb}: ${listed(panels)}`);
+  return clauses.length > 0 ? clauses : ["panels reordered"];
+}
+
+function dashboardChanges(file, served) {
+  const fields = differing$1(file, served);
+  const others = fields.filter((field) => field !== "panels");
+  return [
+    ...(fields.includes("panels")
+      ? panelChanges(file.panels, served?.panels)
+      : []),
+    ...(others.length > 0 ? [`fields changed: ${others.join(", ")}`] : []),
+  ].join("; ");
+}
 
 const normalize = (text) =>
   String(text ?? "")
     .replace(/\r\n?/g, "\n")
     .trim();
 
-const text = (field) => (wanted, current) =>
-  normalize(wanted) === normalize(current[field])
-    ? null
-    : [[field, normalize(wanted)]];
+const clip = (text) => (text.length > 60 ? `${text.slice(0, 59)}…` : text);
+const lines = (text) => (text ? text.split("\n") : []);
 
-const set = (field) => (wanted, current) =>
-  wanted.length === new Set(current[field]).size &&
-  wanted.every((item) => current[field].includes(item))
-    ? null
-    : [[field, wanted.join(",")]];
+function unmatched(from, to) {
+  const left = [...to];
+  return from.filter((line) => {
+    const at = left.indexOf(line);
+    if (at >= 0) left.splice(at, 1);
+    return at < 0;
+  }).length;
+}
 
-// grafana.com lists a new image after the ones it holds, so only a leading run of the wanted list can stay
-function screenshots(files, current) {
-  const remove = [];
-  let kept = 0;
-  for (const image of current.screenshots) {
-    if (kept < files.length && image.bytes.equals(files[kept].bytes)) kept++;
-    else remove.push(image.id);
+function textChange(wanted, held) {
+  const [now, old] = [normalize(wanted), normalize(held)];
+  if (!(now + old).includes("\n")) {
+    return `${JSON.stringify(clip(old))} → ${JSON.stringify(clip(now))}`;
   }
-  const upload = files.slice(kept).map((file) => ["screenshots", file]);
-  if (remove.length > 0)
-    upload.unshift(["screenshotsToRemove", remove.join(",")]);
-  return upload.length > 0 ? upload : null;
+  const added = unmatched(lines(now), lines(old));
+  return `+${added} -${unmatched(lines(old), lines(now))} lines`;
 }
 
-function logo(file, current) {
-  const same = file.svg || (current.logo && file.bytes.equals(current.logo));
-  return current.hasLogo && same ? null : [["logo", file]];
-}
+const text = (field) => ({
+  diff: (wanted, current) =>
+    normalize(wanted) === normalize(current[field])
+      ? null
+      : [[field, normalize(wanted)]],
+  detail: (wanted, current) => textChange(wanted, current[field]),
+});
 
-const DIFF = {
-  revision: (file, current) =>
+const clauses = (groups) =>
+  groups
+    .filter(([, items]) => items.length > 0)
+    .map(([verb, items]) => `${verb} ${items.join(", ")}`)
+    .join("; ");
+
+const set = (field) => ({
+  diff: (wanted, current) =>
+    wanted.length === new Set(current[field]).size &&
+    wanted.every((item) => current[field].includes(item))
+      ? null
+      : [[field, wanted.join(",")]],
+  detail: (wanted, current) =>
+    clauses([
+      ["adds", wanted.filter((item) => !current[field].includes(item))],
+      ["removes", current[field].filter((item) => !wanted.includes(item))],
+    ]),
+});
+
+const screenshots = {
+  // grafana.com lists a new image after the ones it holds, so only a leading run of the wanted list can stay
+  diff(files, current) {
+    const remove = [];
+    let kept = 0;
+    for (const image of current.screenshots) {
+      if (kept < files.length && image.bytes.equals(files[kept].bytes)) kept++;
+      else remove.push(image.id);
+    }
+    const upload = files.slice(kept).map((file) => ["screenshots", file]);
+    if (remove.length > 0)
+      upload.unshift(["screenshotsToRemove", remove.join(",")]);
+    return upload.length > 0 ? upload : null;
+  },
+  detail(files, current, change) {
+    const sent = (field) =>
+      change.filter(([name]) => name === field).map(([, value]) => value);
+    return clauses([
+      [
+        "removes",
+        sent("screenshotsToRemove").map((ids) => ids.split(",").length),
+      ],
+      ["uploads", sent("screenshots").map((file) => file.path)],
+    ]);
+  },
+};
+
+const logo = {
+  diff(file, current) {
+    const same = file.svg || (current.logo && file.bytes.equals(current.logo));
+    return current.hasLogo && same ? null : [["logo", file]];
+  },
+  detail: (file, current) =>
+    current.hasLogo ? "replaces the listing's" : "the listing has none",
+};
+
+const revision = {
+  diff: (file, current) =>
     sameDashboard(file.dashboard, current.dashboard) ? null : [["json", file]],
+  detail: (file, current) =>
+    dashboardChanges(file.dashboard, current.dashboard),
+};
+
+const PART = {
+  revision,
   name: text("name"),
   description: text("description"),
   readme: text("readme"),
@@ -29409,13 +29540,14 @@ const DIFF = {
   "collector-config": text("collectorConfig"),
 };
 
-const PARTS = Object.keys(DIFF);
+const PARTS = Object.keys(PART);
 
 const plan = (wanted, current) =>
-  PARTS.filter((part) => part in wanted).map((part) => ({
-    part,
-    change: DIFF[part](wanted[part], current),
-  }));
+  PARTS.filter((part) => part in wanted).map((part) => {
+    const change = PART[part].diff(wanted[part], current);
+    const detail = change && PART[part].detail(wanted[part], current, change);
+    return { part, change, detail };
+  });
 
 const MEDIA = ["screenshots", "logo"];
 
@@ -29649,6 +29781,24 @@ const SOURCES = {
   "collector-config": { input: "collector-config" },
 };
 
+function readDryRun(token) {
+  const asked =
+    getInput("dry-run") === ""
+      ? undefined
+      : getBooleanInput("dry-run");
+  if (asked === false && !token) {
+    throw new Error(
+      "token: it is empty, and dry-run: false asks to publish. Check the secret's name, and that this run may read it: a pull request from a fork may not",
+    );
+  }
+  if (asked === undefined && !token) {
+    notice(
+      "token is empty, so this is a dry run and nothing is published. With dry-run: false that is an error instead",
+    );
+  }
+  return asked ?? !token;
+}
+
 function readInputs() {
   const dashboardId = getInput("dashboard-id", { required: true });
   if (!/^[1-9]\d*$/.test(dashboardId)) {
@@ -29658,8 +29808,7 @@ function readInputs() {
   }
   const token = getInput("token");
   if (token) setSecret(token);
-  const dryRun =
-    getInput("dry-run") !== "" && getBooleanInput("dry-run");
+  const dryRun = readDryRun(token);
 
   const wanted = {};
   for (const [part, source] of Object.entries(SOURCES)) {
@@ -29672,17 +29821,33 @@ function readInputs() {
     const inputs = Object.values(SOURCES).map((source) => source.input);
     throw new Error(`nothing to publish: pass one of ${inputs.join(", ")}`);
   }
-  return { dashboardId, token, dryRun: dryRun || !token, wanted };
+  // grafana.com serves the listing's description inside the dashboard, so the file's own is the default
+  const own = wanted.revision?.dashboard.description;
+  if (!wanted.description && typeof own === "string" && own.trim()) {
+    wanted.description = own;
+  }
+  return { dashboardId, token, dryRun, wanted };
 }
 
 const CHANGED = ["published", "would publish"];
 
-async function report(entries, { dryRun, revision, url }) {
-  const changes = entries
-    .filter((entry) => CHANGED.includes(entry.outcome))
-    .map((entry) => entry.part);
-  for (const { part, outcome } of entries) info(`${part}: ${outcome}`);
+const oneLine = (text) => (text ?? "").replace(/\s+/g, " ");
+const escapeHtml = (text) =>
+  text.replace(/[&<>]/g, (char) => `&#${char.charCodeAt(0)};`);
 
+async function report(entries, { dryRun, revision, url }) {
+  const rows = entries.map(({ part, outcome, detail }) => [
+    part,
+    outcome,
+    oneLine(detail),
+  ]);
+  for (const [part, outcome, detail] of rows) {
+    info(`${part}: ${outcome}${detail && ` (${detail})`}`);
+  }
+
+  const changes = rows
+    .filter(([, outcome]) => CHANGED.includes(outcome))
+    .map(([part]) => part);
   setOutput("changed", changes.length > 0);
   setOutput("changes", changes.join(","));
   setOutput("revision", revision);
@@ -29692,11 +29857,12 @@ async function report(entries, { dryRun, revision, url }) {
     await summary
       .addHeading(dryRun ? "Dry run: nothing was published" : "Published", 3)
       .addTable([
-        [
-          { data: "Part", header: true },
-          { data: "Outcome", header: true },
-        ],
-        ...entries.map(({ part, outcome }) => [part, outcome]),
+        ["Part", "Outcome", "Details"].map((data) => ({ data, header: true })),
+        ...rows.map(([part, outcome, detail]) => [
+          part,
+          outcome,
+          escapeHtml(detail),
+        ]),
       ])
       .addLink(url, url)
       .write();
@@ -29721,6 +29887,12 @@ async function run({ fetch } = {}) {
     if (current.status !== "active") {
       warning(
         `the listing is ${current.status}, so grafana.com does not show it yet`,
+      );
+    }
+    const description = entries.find((entry) => entry.part === "description");
+    if (description?.change && current.description) {
+      info(
+        `the listing's description so far: ${JSON.stringify(current.description)}`,
       );
     }
 

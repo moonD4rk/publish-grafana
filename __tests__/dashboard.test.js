@@ -1,4 +1,8 @@
-import { checkDashboard, sameDashboard } from "../src/dashboard.js";
+import {
+  checkDashboard,
+  dashboardChanges,
+  sameDashboard,
+} from "../src/dashboard.js";
 
 describe("sameDashboard", () => {
   const file = {
@@ -29,6 +33,67 @@ describe("sameDashboard", () => {
     ],
   ])("when %s", (_, served, same) => {
     expect(sameDashboard(file, served)).toBe(same);
+  });
+});
+
+describe("dashboardChanges", () => {
+  const requests = { id: 1, title: "Requests" };
+  const errors = { id: 2, title: "Errors" };
+  const latency = { id: 4, title: "Latency" };
+  const row = { id: 3, type: "row", title: "More", panels: [latency] };
+  const served = {
+    title: "Demo",
+    gnetId: 26104,
+    description: "from the listing",
+    panels: [requests, errors, row],
+  };
+  const fresh = (id) => ({ id, title: `Panel ${id}` });
+
+  it.each([
+    [
+      "a panel and a field changed",
+      { title: "Demo 2", panels: [{ ...requests, type: "stat" }, errors, row] },
+      "panels changed: Requests; fields changed: title",
+    ],
+    [
+      "a panel inside a row changed",
+      {
+        title: "Demo",
+        panels: [requests, errors, { ...row, panels: [{ ...latency, w: 1 }] }],
+      },
+      "panels changed: Latency",
+    ],
+    [
+      "panels were added and removed",
+      { title: "Demo", panels: [requests, { id: 9, type: "text" }, { id: 8 }] },
+      "panels added: a text, a panel; panels removed: Errors, More, Latency",
+    ],
+    [
+      "many panels were added",
+      {
+        title: "Demo",
+        panels: [requests, errors, row, ...[5, 6, 7, 8].map(fresh)],
+      },
+      "panels added: Panel 5, Panel 6, Panel 7 and 1 more",
+    ],
+    [
+      "the panels are in another order",
+      { title: "Demo", panels: [errors, requests, row] },
+      "panels reordered",
+    ],
+    [
+      "a field was added and the panels removed",
+      { title: "Demo", tags: ["demo"] },
+      "panels removed: Requests, Errors, More and 1 more; fields changed: tags",
+    ],
+  ])("when %s", (_, file, changes) => {
+    expect(dashboardChanges(file, served)).toBe(changes);
+  });
+
+  it("compares with a listing that serves no dashboard", () => {
+    expect(dashboardChanges({ title: "Demo" }, null)).toBe(
+      "fields changed: title",
+    );
   });
 });
 

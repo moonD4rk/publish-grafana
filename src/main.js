@@ -26,6 +26,12 @@ export async function run({ fetch } = {}) {
         `the listing is ${current.status}, so grafana.com does not show it yet`,
       );
     }
+    const description = entries.find((entry) => entry.part === "description");
+    if (description?.change && current.description) {
+      core.info(
+        `the listing's description so far: ${JSON.stringify(current.description)}`,
+      );
+    }
 
     const { error, ...result } = dryRun
       ? { entries: entries.map(preview), revision: current.revision }

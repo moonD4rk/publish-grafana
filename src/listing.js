@@ -27,8 +27,20 @@ function parse(listing, id) {
   }
 }
 
+async function fetchListing(client, id) {
+  try {
+    return await client.listing(id);
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    throw new Error(
+      `dashboard-id: grafana.com finds no dashboard ${id}. Use the number in the dashboard's URL, grafana.com/grafana/dashboards/<number>-…`,
+      { cause: error },
+    );
+  }
+}
+
 export async function readListing(client, id, wanted) {
-  const { images, ...current } = parse(await client.listing(id), id);
+  const { images, ...current } = parse(await fetchListing(client, id), id);
   if (wanted.screenshots) {
     current.screenshots = await Promise.all(
       images.map(async (imageId) => ({

@@ -52,12 +52,58 @@ function canonical(value) {
   );
 }
 
-function comparable(dashboard) {
-  const copy = { ...dashboard };
-  delete copy.gnetId;
-  delete copy.description;
-  return JSON.stringify(canonical(copy));
-}
+const REWRITTEN = ["gnetId", "description"];
+
+const same = (a, b) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+
+const differing = (file, served) =>
+  Object.keys({ ...served, ...file }).filter(
+    (field) =>
+      !REWRITTEN.includes(field) && !same(file[field], served?.[field]),
+  );
 
 export const sameDashboard = (file, served) =>
-  comparable(file) === comparable(served);
+  differing(file, served).length === 0;
+
+const nested = (panels) =>
+  (panels ?? []).flatMap((panel) => [panel, ...(panel.panels ?? [])]);
+const key = (panel) => panel.id ?? panel.title;
+const own = (panel) => ({ ...panel, panels: undefined });
+
+function listed(panels) {
+  const names = panels.map(
+    (panel) => panel.title || `a ${panel.type ?? "panel"}`,
+  );
+  const more = names.length > 3 ? ` and ${names.length - 3} more` : "";
+  return names.slice(0, 3).join(", ") + more;
+}
+
+function panelChanges(file, served) {
+  const wanted = nested(file);
+  const held = new Map(nested(served).map((panel) => [key(panel), panel]));
+  const kept = new Set(wanted.map(key));
+  const groups = {
+    changed: wanted.filter(
+      (panel) =>
+        held.has(key(panel)) && !same(own(panel), own(held.get(key(panel)))),
+    ),
+    added: wanted.filter((panel) => !held.has(key(panel))),
+    removed: [...held.values()].filter((panel) => !kept.has(key(panel))),
+  };
+  const clauses = Object.entries(groups)
+    .filter(([, panels]) => panels.length > 0)
+    .map(([verb, panels]) => `panels ${verb}: ${listed(panels)}`);
+  return clauses.length > 0 ? clauses : ["panels reordered"];
+}
+
+export function dashboardChanges(file, served) {
+  const fields = differing(file, served);
+  const others = fields.filter((field) => field !== "panels");
+  return [
+    ...(fields.includes("panels")
+      ? panelChanges(file.panels, served?.panels)
+      : []),
+    ...(others.length > 0 ? [`fields changed: ${others.join(", ")}`] : []),
+  ].join("; ");
+}

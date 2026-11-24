@@ -70,7 +70,24 @@ describe("the grafana.com client", () => {
     const fetch = jest.fn(async () => new Response("<html>", { status: 403 }));
 
     await expect(createClient({ fetch }).listing("1")).rejects.toThrow(
-      "grafana.com answered 403 to GET /dashboards/1: no details",
+      /^grafana\.com answered 403 to GET \/dashboards\/1: no details$/,
+    );
+  });
+
+  it.each([
+    [401, "token: grafana.com does not accept it"],
+    [403, "token: grafana.com does not let it do this"],
+  ])("blames the token that was sent for a %i", async (status, hint) => {
+    const client = createClient({
+      fetch: jest.fn(failing(status)),
+      token: "t",
+    });
+
+    const reading = client.listing("1");
+
+    await expect(reading).rejects.toThrow(hint);
+    await expect(reading).rejects.toThrow(
+      `; grafana.com answered ${status} to GET /dashboards/1: no details`,
     );
   });
 
