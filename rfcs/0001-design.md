@@ -1,0 +1,56 @@
+# RFC 0001: Design
+
+## Problem
+
+A dashboard shared on grafana.com lives in two places: the repository, where it changes with every release, and its page on grafana.com (the listing), which someone updates by hand. The listing falls behind, and whoever imports the dashboard by its ID gets an old one. No Marketplace action fixes this, and the scripts other projects carry upload the JSON only, so the README and the screenshots still go stale.
+
+## What the action does
+
+One step makes one listing match the repository:
+
+1. Check the inputs before anything is sent. The run fails on a missing file, an unknown category or collector type, an image over 1 MiB, or a dashboard file that is not a classic dashboard JSON. A dashboard that is hard to import (no `__inputs`, a hard-coded data source, a fixed `id`) gets a warning.
+2. Read the listing from grafana.com.
+3. Compare it with each part passed as an input.
+4. Publish only the parts that differ: the dashboard as a new revision, then everything else in one listing update.
+5. Report what changed, in the outputs and the job summary.
+
+| Part | Inputs | Compared |
+| --- | --- | --- |
+| Dashboard JSON | `dashboard-file` | As JSON values, without the two fields grafana.com rewrites |
+| Name, description, README | `name`, `description`, `readme-file` | As text |
+| Screenshots | `screenshots` | By content hash, in order |
+| Logo | `logo` | By content hash |
+| Categories | `categories` | As a set |
+| Collector details | `collector-type`, `collector-plugins`, `collector-config` | As text, the plugins as a set |
+
+## Principles
+
+1. **The repository is the source.** After a run, each managed part equals what the repository holds.
+2. **Idempotent.** A part that already matches is not published, so the action is safe on every push and the revision number moves only when the JSON changed.
+3. **Opt-in by part.** An input that is not passed is a part that is never touched.
+4. **Safe without a token.** With no token, or with `dry-run: true`, the run only reads and reports what it would publish, so pull requests from forks can run it.
+5. **A write is sent once.** When its outcome is unknown, the action reads the listing again and decides from what it finds. Only reads are retried.
+6. **The token goes to grafana.com only.** It is masked, and it never reaches the log, the summary or an output.
+
+## Out of scope
+
+- Creating or deleting a dashboard: the first upload is done once on the website, which assigns the ID.
+- Emptying the categories or the collector details.
+- Several dashboards in one step: a workflow uses a matrix.
+- Deploying a dashboard to a Grafana instance.
+
+## How it is built
+
+- JavaScript, as ES modules, on the runner's `node24`. Rollup bundles it into `dist/`, which is committed, and CI rejects a stale bundle.
+- The runtime dependencies are the `@actions/*` toolkit only. HTTP, multipart bodies and hashing come from Node.
+- Deciding is kept apart from doing: the plan is a pure function of the inputs and the listing, tested as a table, and one module owns every request to grafana.com.
+- Unit tests never touch the network. Whatever needs a real listing uses the demo listing in `demo/`, dashboard 26104, and never a project's own.
+- A workflow declares the least permissions it needs and pins an outside action by its commit SHA.
+- A release is a tag `vX.Y.Z` on `main`, and the tag `v1` moves to the newest one. The inputs and the outputs are the public interface, so breaking one needs a new major version.
+
+## Open questions
+
+- Whether a run warns when the listing is still pending, and so not shown on grafana.com.
+- A changed SVG logo cannot be detected, since grafana.com rewrites an SVG. For now an SVG is uploaded only when the listing has no logo.
+
+What the design relies on about grafana.com is in [RFC 0002](0002-grafana-api.md).
