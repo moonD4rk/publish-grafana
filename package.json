@@ -1,6 +1,6 @@
 {
   "name": "publish-grafana",
-  "description": "A GitHub Action that keeps a dashboard's listing on grafana.com in step with the files in a repository",
+  "description": "A GitHub Action that publishes a dashboard to grafana.com and keeps its page up to date from the files in a repository",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",

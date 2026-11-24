@@ -1,5 +1,5 @@
 name: Publish dashboard to grafana.com
-description: Keeps a dashboard's listing on grafana.com in step with the files in your repository
+description: Publishes a dashboard to grafana.com and keeps its page up to date from the files in your repository
 author: moonD4rk
 
 branding:
@@ -14,25 +14,25 @@ inputs:
     description: A Grafana Cloud access policy token with the dashboards:write scope. Without it the run is a dry run
     required: false
   dashboard-file:
-    description: The dashboard JSON, published as a new revision when it differs from the latest one
+    description: The dashboard JSON, published as a new revision when it changed
     required: false
   name:
-    description: The listing's name
+    description: The name on the dashboard's page
     required: false
   description:
-    description: The listing's short description
+    description: The short description on the dashboard's page
     required: false
   readme-file:
-    description: A Markdown file for the listing's README
+    description: A Markdown file for the page's README
     required: false
   screenshots:
     description: Image files or globs, one per line, in the order to show them
     required: false
   logo:
-    description: A PNG or JPEG file for the listing's logo, uploaded when it differs from the listing's. An SVG is uploaded only when the listing has none
+    description: A PNG or JPEG file for the logo
     required: false
   categories:
-    description: Category slugs, one per line, such as docker or hostmetrics
+    description: Category slugs, one per line, such as docker
     required: false
   collector-type:
     description: "The collector that feeds the dashboard: collectd, nodeExporter, Snap, Telegraf, Beats, Icinga or Other"
@@ -44,15 +44,15 @@ inputs:
     description: A text on how to set the collector up
     required: false
   dry-run:
-    description: true reports what would change and publishes nothing, even with a token
+    description: true publishes nothing and reports what would change
     required: false
     default: "false"
 
 outputs:
   changed:
-    description: true when the run published something, or would have in a dry run
+    description: true when something was published, or would have been in a dry run
   changes:
-    description: "What changed, comma-separated: revision, name, description, readme, screenshots, logo, categories, collector-type, collector-plugins, collector-config"
+    description: What changed, comma-separated, such as revision,readme,screenshots
   revision:
     description: The latest revision number after the run
   url:
