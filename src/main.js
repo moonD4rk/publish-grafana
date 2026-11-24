@@ -1,9 +1,15 @@
 import * as core from "@actions/core";
+import { apply } from "./apply.js";
 import { createClient } from "./grafana.js";
 import { readInputs } from "./inputs.js";
 import { checkCategories, readListing } from "./listing.js";
 import { plan } from "./plan.js";
 import { report } from "./report.js";
+
+const preview = (entry) => ({
+  ...entry,
+  outcome: entry.change ? "would publish" : "unchanged",
+});
 
 export async function run({ fetch } = {}) {
   try {
@@ -20,12 +26,12 @@ export async function run({ fetch } = {}) {
         `the listing is ${current.status}, so grafana.com does not show it yet`,
       );
     }
-    if (!dryRun) {
-      core.warning(
-        "publishing is not implemented yet: this run only reports what would change",
-      );
-    }
-    await report(entries, { ...current, dryRun: true });
+
+    const { error, ...result } = dryRun
+      ? { entries: entries.map(preview), revision: current.revision }
+      : await apply(client, dashboardId, { wanted, current, entries });
+    await report(result.entries, { ...current, ...result, dryRun });
+    if (error) throw error;
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));
   }

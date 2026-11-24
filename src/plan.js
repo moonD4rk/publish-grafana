@@ -1,6 +1,9 @@
 import { sameDashboard } from "./dashboard.js";
 
-const normalize = (text) => (text ?? "").replace(/\r\n?/g, "\n").trim();
+const normalize = (text) =>
+  String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
 
 const text = (field) => (wanted, current) =>
   normalize(wanted) === normalize(current[field])

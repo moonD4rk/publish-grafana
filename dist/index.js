@@ -32,8 +32,8 @@ import require$$1$5 from 'node:dns';
 import require$$5$3 from 'string_decoder';
 import 'child_process';
 import 'timers';
+import path, { basename } from 'node:path';
 import { globSync, readFileSync, statSync } from 'node:fs';
-import path from 'node:path';
 
 // We use any as a valid input type
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29138,7 +29138,8 @@ function info(message) {
 
 const API = "https://grafana.com/api";
 const ATTEMPTS = 3;
-const TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 120_000;
 
 class GrafanaError extends Error {
   constructor(method, path, status, body) {
@@ -29162,31 +29163,45 @@ const retryable = (error) =>
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function multipart(fields) {
+  const form = new FormData();
+  for (const [name, value] of fields) {
+    if (typeof value === "string") {
+      form.append(name, value);
+    } else {
+      const file = new Blob([value.bytes], { type: value.type });
+      form.append(name, file, basename(value.path));
+    }
+  }
+  return form;
+}
+
 function createClient({
   token,
   fetch = globalThis.fetch,
   wait = pause,
 } = {}) {
-  async function send(method, path) {
+  async function send(method, path, body) {
     let response;
     try {
       response = await fetch(`${API}${path}`, {
         method,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body,
         redirect: "error",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(body ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS),
       });
     } catch (error) {
       const reason = error.cause?.message ?? error.message;
       throw new Error(
-        `${method} ${path} did not reach grafana.com: ${reason}`,
+        `${method} ${path} got no answer from grafana.com: ${reason}`,
         { cause: error },
       );
     }
     debug(`${method} ${path} -> ${response.status}`);
     if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new GrafanaError(method, path, response.status, body);
+      const answer = await response.json().catch(() => null);
+      throw new GrafanaError(method, path, response.status, answer);
     }
     return response;
   }
@@ -29206,6 +29221,8 @@ function createClient({
   const json = async (path) => (await read(path)).json();
   const bytes = async (path) =>
     Buffer.from(await (await read(path)).arrayBuffer());
+  const write = async (path, fields) =>
+    (await send("POST", path, multipart(fields))).json();
 
   return {
     listing: (id) => json(`/dashboards/${id}`),
@@ -29214,7 +29231,69 @@ function createClient({
     logo: (id) => bytes(`/dashboards/${id}/logos/large`),
     categories: async () =>
       (await json("/categories")).items.map((category) => category.slug),
+    publishRevision: (id, fields) =>
+      write(`/dashboards/${id}/revisions`, fields),
+    updateListing: (id, fields) => write(`/dashboards/${id}`, fields),
   };
+}
+
+function parse(listing, id) {
+  try {
+    return {
+      revision: listing.revision,
+      status: listing.statusCode,
+      url: `https://grafana.com/grafana/dashboards/${id}-${listing.slug}/`,
+      dashboard: listing.json,
+      name: listing.name,
+      description: listing.description,
+      readme: listing.readme,
+      images: listing.screenshots
+        .map((image) => image.id)
+        .sort((a, b) => a - b),
+      hasLogo: listing.hasLogo,
+      categories: listing.categories.items.map((item) => item.categorySlug),
+      collectorType: listing.collectorType,
+      collectorPlugins: listing.collectorPlugins.items.map((item) => item.name),
+      collectorConfig: listing.collectorConfig,
+    };
+  } catch (error) {
+    throw new Error(
+      `grafana.com's answer for dashboard ${id} is not what the action expects, so its API may have changed: ${error.message}`,
+      { cause: error },
+    );
+  }
+}
+
+async function readListing(client, id, wanted) {
+  const { images, ...current } = parse(await client.listing(id), id);
+  if (wanted.screenshots) {
+    current.screenshots = await Promise.all(
+      images.map(async (imageId) => ({
+        id: imageId,
+        bytes: await client.screenshot(id, imageId),
+      })),
+    );
+  }
+  if (wanted.logo && current.hasLogo) {
+    if (wanted.logo.svg) {
+      info(
+        "logo: grafana.com rewrites an SVG, so it cannot be compared and the listing's logo stays as it is",
+      );
+    } else {
+      current.logo = await client.logo(id);
+    }
+  }
+  return current;
+}
+
+async function checkCategories(client, wanted) {
+  const known = await client.categories();
+  const unknown = wanted.filter((slug) => !known.includes(slug));
+  if (unknown.length > 0) {
+    throw new Error(
+      `categories: grafana.com has no ${unknown.join(", ")}; it has ${known.join(", ")}`,
+    );
+  }
 }
 
 const BUILT_IN_DATA_SOURCES = new Set([
@@ -29280,6 +29359,159 @@ function comparable(dashboard) {
 
 const sameDashboard = (file, served) =>
   comparable(file) === comparable(served);
+
+const normalize = (text) =>
+  String(text ?? "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+const text = (field) => (wanted, current) =>
+  normalize(wanted) === normalize(current[field])
+    ? null
+    : [[field, normalize(wanted)]];
+
+const set = (field) => (wanted, current) =>
+  wanted.length === new Set(current[field]).size &&
+  wanted.every((item) => current[field].includes(item))
+    ? null
+    : [[field, wanted.join(",")]];
+
+// grafana.com lists a new image after the ones it holds, so only a leading run of the wanted list can stay
+function screenshots(files, current) {
+  const remove = [];
+  let kept = 0;
+  for (const image of current.screenshots) {
+    if (kept < files.length && image.bytes.equals(files[kept].bytes)) kept++;
+    else remove.push(image.id);
+  }
+  const upload = files.slice(kept).map((file) => ["screenshots", file]);
+  if (remove.length > 0)
+    upload.unshift(["screenshotsToRemove", remove.join(",")]);
+  return upload.length > 0 ? upload : null;
+}
+
+function logo(file, current) {
+  const same = file.svg || (current.logo && file.bytes.equals(current.logo));
+  return current.hasLogo && same ? null : [["logo", file]];
+}
+
+const DIFF = {
+  revision: (file, current) =>
+    sameDashboard(file.dashboard, current.dashboard) ? null : [["json", file]],
+  name: text("name"),
+  description: text("description"),
+  readme: text("readme"),
+  screenshots,
+  logo,
+  categories: set("categories"),
+  "collector-type": text("collectorType"),
+  "collector-plugins": set("collectorPlugins"),
+  "collector-config": text("collectorConfig"),
+};
+
+const PARTS = Object.keys(DIFF);
+
+const plan = (wanted, current) =>
+  PARTS.filter((part) => part in wanted).map((part) => ({
+    part,
+    change: DIFF[part](wanted[part], current),
+  }));
+
+const MEDIA = ["screenshots", "logo"];
+
+const without = (object, keys) =>
+  Object.fromEntries(
+    Object.entries(object).filter(([key]) => !keys.includes(key)),
+  );
+
+const differing = (wanted, current) =>
+  plan(wanted, current)
+    .filter((entry) => entry.change)
+    .map((entry) => entry.part);
+
+// A write is sent once: when its outcome is unknown, the listing as read again decides
+async function sendOnce(write, landed) {
+  try {
+    return await write();
+  } catch (error) {
+    const unknown = !(error instanceof GrafanaError) || error.status === 409;
+    if (!unknown || !(await landed())) throw error;
+    info(`the listing holds what was sent, although ${error.message}`);
+    return undefined;
+  }
+}
+
+async function apply(client, id, { wanted, current, entries }) {
+  const read = (parts) => readListing(client, id, parts);
+  const published = new Set();
+  let revision = current.revision;
+  let expected = wanted;
+  let restoring = false;
+  let error;
+
+  try {
+    let state = current;
+    const upload = entries.find((entry) => entry.part === "revision")?.change;
+    if (upload) {
+      const file = { revision: wanted.revision };
+      const answer = await sendOnce(
+        () => client.publishRevision(id, upload),
+        async () => differing(file, await read({})).length === 0,
+      );
+      published.add("revision");
+      revision = answer?.revision ?? revision;
+      // The upload replaced the listing's description with the file's, so what was there is sent again
+      const { description } = current;
+      state = { ...current, description: file.revision.dashboard.description };
+      expected = { description, ...wanted };
+      restoring =
+        !("description" in wanted) &&
+        differing({ description }, state).length > 0;
+    }
+
+    const listing = without(expected, ["revision"]);
+    const fields = plan(listing, state).flatMap((entry) => entry.change ?? []);
+    if (fields.length > 0) {
+      await sendOnce(
+        () => client.updateListing(id, fields),
+        async () => differing(listing, await read(listing)).length === 0,
+      );
+    }
+    for (const entry of entries) if (entry.change) published.add(entry.part);
+  } catch (caught) {
+    error = restoring
+      ? new Error(
+          `${caught.message}; the revision upload replaced the listing's description, which was ${JSON.stringify(current.description)}`,
+          { cause: caught },
+        )
+      : caught;
+  }
+
+  if (!error && published.size > 0) {
+    try {
+      const fresh = await read({});
+      revision = fresh.revision;
+      const off = differing(without(expected, MEDIA), fresh);
+      if (off.length > 0) {
+        warning(
+          `grafana.com holds something else than what was sent for ${off.join(", ")}, so the next run will publish it again`,
+        );
+      }
+    } catch (caught) {
+      warning(`the listing could not be read back: ${caught.message}`);
+    }
+  }
+
+  const outcome = ({ part, change }) => {
+    if (!change) return "unchanged";
+    return published.has(part) ? "published" : "not published";
+  };
+  return {
+    entries: entries.map((entry) => ({ ...entry, outcome: outcome(entry) })),
+    revision,
+    error,
+  };
+}
 
 const COLLECTOR_TYPES = [
   "collectd",
@@ -29443,147 +29675,38 @@ function readInputs() {
   return { dashboardId, token, dryRun: dryRun || !token, wanted };
 }
 
-function parse(listing, id) {
-  try {
-    return {
-      revision: listing.revision,
-      status: listing.statusCode,
-      url: `https://grafana.com/grafana/dashboards/${id}-${listing.slug}/`,
-      dashboard: listing.json,
-      name: listing.name,
-      description: listing.description,
-      readme: listing.readme,
-      images: listing.screenshots
-        .map((image) => image.id)
-        .sort((a, b) => a - b),
-      hasLogo: listing.hasLogo,
-      categories: listing.categories.items.map((item) => item.categorySlug),
-      collectorType: listing.collectorType,
-      collectorPlugins: listing.collectorPlugins.items.map((item) => item.name),
-      collectorConfig: listing.collectorConfig,
-    };
-  } catch (error) {
-    throw new Error(
-      `grafana.com's answer for dashboard ${id} is not what the action expects, so its API may have changed: ${error.message}`,
-      { cause: error },
-    );
-  }
-}
-
-async function readListing(client, id, wanted) {
-  const { images, ...current } = parse(await client.listing(id), id);
-  if (wanted.screenshots) {
-    current.screenshots = await Promise.all(
-      images.map(async (imageId) => ({
-        id: imageId,
-        bytes: await client.screenshot(id, imageId),
-      })),
-    );
-  }
-  if (wanted.logo && current.hasLogo) {
-    if (wanted.logo.svg) {
-      info(
-        "logo: grafana.com rewrites an SVG, so it cannot be compared and the listing's logo stays as it is",
-      );
-    } else {
-      current.logo = await client.logo(id);
-    }
-  }
-  return current;
-}
-
-async function checkCategories(client, wanted) {
-  const known = await client.categories();
-  const unknown = wanted.filter((slug) => !known.includes(slug));
-  if (unknown.length > 0) {
-    throw new Error(
-      `categories: grafana.com has no ${unknown.join(", ")}; it has ${known.join(", ")}`,
-    );
-  }
-}
-
-const normalize = (text) => (text ?? "").replace(/\r\n?/g, "\n").trim();
-
-const text = (field) => (wanted, current) =>
-  normalize(wanted) === normalize(current[field])
-    ? null
-    : [[field, normalize(wanted)]];
-
-const set = (field) => (wanted, current) =>
-  wanted.length === new Set(current[field]).size &&
-  wanted.every((item) => current[field].includes(item))
-    ? null
-    : [[field, wanted.join(",")]];
-
-// grafana.com lists a new image after the ones it holds, so only a leading run of the wanted list can stay
-function screenshots(files, current) {
-  const remove = [];
-  let kept = 0;
-  for (const image of current.screenshots) {
-    if (kept < files.length && image.bytes.equals(files[kept].bytes)) kept++;
-    else remove.push(image.id);
-  }
-  const upload = files.slice(kept).map((file) => ["screenshots", file]);
-  if (remove.length > 0)
-    upload.unshift(["screenshotsToRemove", remove.join(",")]);
-  return upload.length > 0 ? upload : null;
-}
-
-function logo(file, current) {
-  const same = file.svg || (current.logo && file.bytes.equals(current.logo));
-  return current.hasLogo && same ? null : [["logo", file]];
-}
-
-const DIFF = {
-  revision: (file, current) =>
-    sameDashboard(file.dashboard, current.dashboard) ? null : [["json", file]],
-  name: text("name"),
-  description: text("description"),
-  readme: text("readme"),
-  screenshots,
-  logo,
-  categories: set("categories"),
-  "collector-type": text("collectorType"),
-  "collector-plugins": set("collectorPlugins"),
-  "collector-config": text("collectorConfig"),
-};
-
-const PARTS = Object.keys(DIFF);
-
-const plan = (wanted, current) =>
-  PARTS.filter((part) => part in wanted).map((part) => ({
-    part,
-    change: DIFF[part](wanted[part], current),
-  }));
+const CHANGED = ["published", "would publish"];
 
 async function report(entries, { dryRun, revision, url }) {
-  const changes = entries.filter((entry) => entry.change);
-  const published = "would publish" ;
-  const rows = entries.map(({ part, change }) => {
-    const outcome = change ? published : "unchanged";
-    info(`${part}: ${outcome}`);
-    return [part, outcome];
-  });
+  const changes = entries
+    .filter((entry) => CHANGED.includes(entry.outcome))
+    .map((entry) => entry.part);
+  for (const { part, outcome } of entries) info(`${part}: ${outcome}`);
 
   setOutput("changed", changes.length > 0);
-  setOutput("changes", changes.map((entry) => entry.part).join(","));
+  setOutput("changes", changes.join(","));
   setOutput("revision", revision);
   setOutput("url", url);
 
   if (process.env.GITHUB_STEP_SUMMARY) {
     await summary
-      .addHeading("Dry run: nothing was published" , 3)
+      .addHeading(dryRun ? "Dry run: nothing was published" : "Published", 3)
       .addTable([
         [
           { data: "Part", header: true },
           { data: "Outcome", header: true },
         ],
-        ...rows,
+        ...entries.map(({ part, outcome }) => [part, outcome]),
       ])
       .addLink(url, url)
       .write();
   }
 }
+
+const preview = (entry) => ({
+  ...entry,
+  outcome: entry.change ? "would publish" : "unchanged",
+});
 
 async function run({ fetch } = {}) {
   try {
@@ -29600,12 +29723,12 @@ async function run({ fetch } = {}) {
         `the listing is ${current.status}, so grafana.com does not show it yet`,
       );
     }
-    if (!dryRun) {
-      warning(
-        "publishing is not implemented yet: this run only reports what would change",
-      );
-    }
-    await report(entries, { ...current, dryRun: true });
+
+    const { error, ...result } = dryRun
+      ? { entries: entries.map(preview), revision: current.revision }
+      : await apply(client, dashboardId, { wanted, current, entries });
+    await report(result.entries, { ...current, ...result, dryRun });
+    if (error) throw error;
   } catch (error) {
     setFailed(error instanceof Error ? error.message : String(error));
   }

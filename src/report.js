@@ -1,16 +1,15 @@
 import * as core from "@actions/core";
 
+const CHANGED = ["published", "would publish"];
+
 export async function report(entries, { dryRun, revision, url }) {
-  const changes = entries.filter((entry) => entry.change);
-  const published = dryRun ? "would publish" : "published";
-  const rows = entries.map(({ part, change }) => {
-    const outcome = change ? published : "unchanged";
-    core.info(`${part}: ${outcome}`);
-    return [part, outcome];
-  });
+  const changes = entries
+    .filter((entry) => CHANGED.includes(entry.outcome))
+    .map((entry) => entry.part);
+  for (const { part, outcome } of entries) core.info(`${part}: ${outcome}`);
 
   core.setOutput("changed", changes.length > 0);
-  core.setOutput("changes", changes.map((entry) => entry.part).join(","));
+  core.setOutput("changes", changes.join(","));
   core.setOutput("revision", revision);
   core.setOutput("url", url);
 
@@ -22,7 +21,7 @@ export async function report(entries, { dryRun, revision, url }) {
           { data: "Part", header: true },
           { data: "Outcome", header: true },
         ],
-        ...rows,
+        ...entries.map(({ part, outcome }) => [part, outcome]),
       ])
       .addLink(url, url)
       .write();

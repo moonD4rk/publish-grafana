@@ -1,6 +1,6 @@
 # RFC 0002: The grafana.com dashboard API
 
-grafana.com does not document its dashboard API. This RFC holds what the design in [RFC 0001](0001-design.md) relies on, measured on 2026-11-23 on the demo listing, dashboard 26104, with `demo/probe.sh`.
+grafana.com does not document its dashboard API. This RFC holds what the design in [RFC 0001](0001-design.md) relies on, measured on 2026-11-23 and 2026-11-24 on the demo listing, dashboard 26104, with `demo/probe.sh` and with the action itself.
 
 Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer <token>`, from an access policy with the `dashboards:write` scope. A read needs nothing.
 
@@ -34,10 +34,12 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 - Screenshots are listed in upload order and cannot be reordered, and the same file uploaded twice makes two images. So a new order means removing images and uploading them again.
 - A screenshot over 1 MiB answers `413 PayloadTooLarge`.
 - A PNG or JPEG logo is served byte for byte, so it can be compared. An SVG is rewritten and cannot.
+- A text is stored as sent, and an empty `description` or `readme` clears it. Node, like a browser, sends a multipart text with CRLF line breaks, so the action compares texts without regard to the kind of line break.
 - `categories` replaces the set, an empty value clears it, and an unknown slug answers `404 NotFound`.
 - `collectorPlugins` replaces the list, but an empty value leaves it as it is. `collectorType` and `collectorConfig` store any text unchecked.
 - `inputs`, which the website's edit form sends, rewrites the labels of `__inputs` inside the latest revision, without adding one. The action does not send it, so after such an edit the next run publishes the file again.
-- A listing created with a token is pending, and so hidden, until an update carries `publish=true`.
+- A listing created with a token is pending, and so hidden, until an update carries `publish=true`. Its public page then appears with a delay: it still answered `404` nineteen minutes later, and was there the next day.
+- The public page shows the screenshots in upload order, the first one large, and lists each revision with the uploaded file's own `description`.
 
 ### Errors and limits
 
@@ -47,4 +49,4 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 ## Not verified
 
-The rate limits, the size limit of a logo, whether the public page shows the screenshots in upload order, and how long a newly published listing takes to appear on its public page.
+The rate limits and the size limit of a logo.
