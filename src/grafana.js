@@ -1,8 +1,10 @@
 import * as core from "@actions/core";
+import { basename } from "node:path";
 
 const API = "https://grafana.com/api";
 const ATTEMPTS = 3;
-const TIMEOUT_MS = 30_000;
+const READ_TIMEOUT_MS = 30_000;
+const WRITE_TIMEOUT_MS = 120_000;
 
 export class GrafanaError extends Error {
   constructor(method, path, status, body) {
@@ -26,31 +28,45 @@ const retryable = (error) =>
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function multipart(fields) {
+  const form = new FormData();
+  for (const [name, value] of fields) {
+    if (typeof value === "string") {
+      form.append(name, value);
+    } else {
+      const file = new Blob([value.bytes], { type: value.type });
+      form.append(name, file, basename(value.path));
+    }
+  }
+  return form;
+}
+
 export function createClient({
   token,
   fetch = globalThis.fetch,
   wait = pause,
 } = {}) {
-  async function send(method, path) {
+  async function send(method, path, body) {
     let response;
     try {
       response = await fetch(`${API}${path}`, {
         method,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body,
         redirect: "error",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(body ? WRITE_TIMEOUT_MS : READ_TIMEOUT_MS),
       });
     } catch (error) {
       const reason = error.cause?.message ?? error.message;
       throw new Error(
-        `${method} ${path} did not reach grafana.com: ${reason}`,
+        `${method} ${path} got no answer from grafana.com: ${reason}`,
         { cause: error },
       );
     }
     core.debug(`${method} ${path} -> ${response.status}`);
     if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new GrafanaError(method, path, response.status, body);
+      const answer = await response.json().catch(() => null);
+      throw new GrafanaError(method, path, response.status, answer);
     }
     return response;
   }
@@ -70,6 +86,8 @@ export function createClient({
   const json = async (path) => (await read(path)).json();
   const bytes = async (path) =>
     Buffer.from(await (await read(path)).arrayBuffer());
+  const write = async (path, fields) =>
+    (await send("POST", path, multipart(fields))).json();
 
   return {
     listing: (id) => json(`/dashboards/${id}`),
@@ -78,5 +96,8 @@ export function createClient({
     logo: (id) => bytes(`/dashboards/${id}/logos/large`),
     categories: async () =>
       (await json("/categories")).items.map((category) => category.slug),
+    publishRevision: (id, fields) =>
+      write(`/dashboards/${id}/revisions`, fields),
+    updateListing: (id, fields) => write(`/dashboards/${id}`, fields),
   };
 }

@@ -90,15 +90,52 @@ describe("run", () => {
     );
   });
 
-  it("warns that a run with a token does not publish yet", async () => {
-    core.setInputs({ "dashboard-id": "26104", name: "New", token: "secret" });
+  it("publishes with a token and reports what it published", async () => {
+    let name = "publish-grafana demo";
+    const fetch = fakeFetch({
+      "/dashboards/26104": () => listing({ name }),
+      "POST /dashboards/26104": () => {
+        name = "Renamed";
+        return {};
+      },
+    });
+    core.setInputs({ "dashboard-id": "26104", name: "Renamed", token: "t" });
+
+    await run({ fetch });
+
+    const update = fetch.mock.calls.find(([, { method }]) => method === "POST");
+    expect(update[1].body.get("name")).toBe("Renamed");
+    expect(core.setFailed).not.toHaveBeenCalled();
+    expect(core.warning).not.toHaveBeenCalled();
+    expect(core.info).toHaveBeenCalledWith("name: published");
+    expect(outputs()).toMatchObject({ changed: true, changes: "name" });
+  });
+
+  it("publishes nothing in a dry run with a token", async () => {
+    const fetch = grafana();
+    core.setInputs({
+      "dashboard-id": "26104",
+      name: "Renamed",
+      token: "t",
+      "dry-run": "true",
+    });
+
+    await run({ fetch });
+
+    expect(fetch.mock.calls.map(([, { method }]) => method)).toEqual(["GET"]);
+    expect(core.info).toHaveBeenCalledWith("name: would publish");
+  });
+
+  it("reports what was not published before it fails", async () => {
+    core.setInputs({ "dashboard-id": "26104", name: "Renamed", token: "t" });
 
     await run({ fetch: grafana() });
 
-    expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining("publishing is not implemented yet"),
+    expect(core.info).toHaveBeenCalledWith("name: not published");
+    expect(outputs().changed).toBe(false);
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining("answered 404 to POST /dashboards/26104"),
     );
-    expect(outputs().changed).toBe(true);
   });
 
   it("fails when the dashboard does not exist", async () => {

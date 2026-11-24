@@ -99,15 +99,81 @@ describe("the grafana.com client", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
-  it("retries a request that did not reach grafana.com, then says why", async () => {
+  it("retries a read that got no answer, then says why", async () => {
     const fetch = jest.fn(async () => {
       throw new TypeError("fetch failed", { cause: new Error("ENOTFOUND") });
     });
 
     await expect(createClient({ fetch, wait }).listing("1")).rejects.toThrow(
-      "GET /dashboards/1 did not reach grafana.com: ENOTFOUND",
+      "GET /dashboards/1 got no answer from grafana.com: ENOTFOUND",
     );
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("uploads a revision as a multipart request with the token", async () => {
+    const fetch = fakeFetch({
+      "POST /dashboards/26104/revisions": { revision: 10 },
+    });
+    const file = {
+      path: "grafana/dashboard.json",
+      type: "application/json",
+      bytes: Buffer.from('{"title":"Demo"}'),
+    };
+
+    const answer = await createClient({
+      fetch,
+      token: "secret",
+    }).publishRevision("26104", [["json", file]]);
+
+    const [url, request] = fetch.mock.calls[0];
+    const part = request.body.get("json");
+    expect(answer).toEqual({ revision: 10 });
+    expect(url).toBe("https://grafana.com/api/dashboards/26104/revisions");
+    expect(request).toMatchObject({
+      method: "POST",
+      headers: { Authorization: "Bearer secret" },
+      redirect: "error",
+    });
+    expect([part.name, part.type, await part.text()]).toEqual([
+      "dashboard.json",
+      "application/json",
+      '{"title":"Demo"}',
+    ]);
+  });
+
+  it("updates the listing with texts and files in one request", async () => {
+    const fetch = fakeFetch({ "POST /dashboards/26104": {} });
+    const image = (name) => ({
+      path: `shots/${name}`,
+      type: "image/png",
+      bytes: Buffer.from(name),
+    });
+
+    await createClient({ fetch, token: "secret" }).updateListing("26104", [
+      ["name", "Demo"],
+      ["screenshotsToRemove", "1,2"],
+      ["screenshots", image("a.png")],
+      ["screenshots", image("b.png")],
+    ]);
+
+    const { body } = fetch.mock.calls[0][1];
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(body.get("name")).toBe("Demo");
+    expect(body.get("screenshotsToRemove")).toBe("1,2");
+    expect(body.getAll("screenshots").map((file) => file.name)).toEqual([
+      "a.png",
+      "b.png",
+    ]);
+  });
+
+  it("never retries a write", async () => {
+    const fetch = jest.fn(failing(500));
+    const client = createClient({ fetch, wait, token: "secret" });
+
+    const writing = client.updateListing("26104", [["name", "Demo"]]);
+
+    await expect(writing).rejects.toBeInstanceOf(GrafanaError);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("waits between attempts by default", async () => {

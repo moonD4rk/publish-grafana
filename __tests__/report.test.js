@@ -6,10 +6,11 @@ jest.unstable_mockModule("@actions/core", () => core);
 const { report } = await import("../src/report.js");
 
 const url = "https://grafana.com/grafana/dashboards/26104-demo/";
-const entries = [
-  { part: "revision", change: [["json", {}]] },
-  { part: "name", change: null },
-  { part: "readme", change: [["readme", "# Demo"]] },
+const entries = (changed) => [
+  { part: "revision", outcome: changed },
+  { part: "name", outcome: "unchanged" },
+  { part: "readme", outcome: changed },
+  { part: "logo", outcome: "not published" },
 ];
 
 describe("report", () => {
@@ -18,7 +19,7 @@ describe("report", () => {
   });
 
   it("sets the outputs and logs each part of a dry run", async () => {
-    await report(entries, { dryRun: true, revision: 9, url });
+    await report(entries("would publish"), { dryRun: true, revision: 9, url });
 
     expect(core.setOutput.mock.calls).toEqual([
       ["changed", true],
@@ -30,12 +31,17 @@ describe("report", () => {
       ["revision: would publish"],
       ["name: unchanged"],
       ["readme: would publish"],
+      ["logo: not published"],
     ]);
     expect(core.summary.write).not.toHaveBeenCalled();
   });
 
   it("reports nothing changed", async () => {
-    await report([entries[1]], { dryRun: false, revision: 9, url });
+    await report([{ part: "name", outcome: "unchanged" }], {
+      dryRun: false,
+      revision: 9,
+      url,
+    });
 
     expect(core.setOutput).toHaveBeenCalledWith("changed", false);
     expect(core.setOutput).toHaveBeenCalledWith("changes", "");
@@ -44,13 +50,14 @@ describe("report", () => {
   it("writes the job summary when the runner has one", async () => {
     process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
 
-    await report(entries, { dryRun: false, revision: 10, url });
+    await report(entries("published"), { dryRun: false, revision: 10, url });
 
     expect(core.summary.addHeading).toHaveBeenCalledWith("Published", 3);
     expect(core.summary.addTable.mock.calls[0][0].slice(1)).toEqual([
       ["revision", "published"],
       ["name", "unchanged"],
       ["readme", "published"],
+      ["logo", "not published"],
     ]);
     expect(core.summary.addLink).toHaveBeenCalledWith(url, url);
     expect(core.summary.write).toHaveBeenCalled();

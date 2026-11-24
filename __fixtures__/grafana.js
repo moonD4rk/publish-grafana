@@ -40,9 +40,58 @@ export const notFound = () =>
     { status: 404 },
   );
 
+// Routes are keyed by path for a GET and by "POST path" for a write; a function is called for each request
 export const fakeFetch = (routes) =>
-  jest.fn(async (url) => {
-    const body = routes[url.replace("https://grafana.com/api", "")];
+  jest.fn(async (url, { method = "GET" } = {}) => {
+    const path = url.replace("https://grafana.com/api", "");
+    const route = routes[method === "GET" ? path : `${method} ${path}`];
+    const body = typeof route === "function" ? route() : route;
     if (body === undefined) return notFound();
     return Buffer.isBuffer(body) ? new Response(body) : Response.json(body);
   });
+
+const items = (value, key) => ({
+  items: value ? value.split(",").map((item) => ({ [key]: item })) : [],
+});
+
+// A client that behaves as grafana.com was measured to (rfcs/0002-grafana-api.md)
+export function fakeClient(answer = listing(), media = {}) {
+  const state = { ...answer };
+  const images = new Map(media.screenshots ?? []);
+  let logo = media.logo;
+  let nextImage = 30000;
+
+  return {
+    listing: jest.fn(async () => ({
+      ...state,
+      screenshots: [...images.keys()].map((id) => ({ id })),
+      json: { ...state.json, gnetId: state.id, description: state.description },
+    })),
+    screenshot: jest.fn(async (id, imageId) => images.get(imageId)),
+    logo: jest.fn(async () => logo),
+    categories: jest.fn(async () => ["aws", "docker", "hostmetrics"]),
+    publishRevision: jest.fn(async (id, [[, file]]) => {
+      state.revision += 1;
+      state.json = file.dashboard;
+      state.description = file.dashboard.description ?? "";
+      return { revision: state.revision };
+    }),
+    updateListing: jest.fn(async (id, fields) => {
+      for (const [name, value] of fields) {
+        if (name === "screenshots") images.set(nextImage++, value.bytes);
+        else if (name === "screenshotsToRemove") {
+          for (const imageId of value.split(","))
+            images.delete(Number(imageId));
+        } else if (name === "logo") {
+          logo = value.bytes;
+          state.hasLogo = true;
+        } else if (name === "categories") {
+          state.categories = items(value, "categorySlug");
+        } else if (name === "collectorPlugins") {
+          state.collectorPlugins = items(value, "name");
+        } else state[name] = value;
+      }
+      return {};
+    }),
+  };
+}
