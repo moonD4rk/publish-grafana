@@ -8,8 +8,8 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 | Request | Does |
 | --- | --- |
-| `GET /dashboards/<id>` | Returns the listing: its texts, categories, collector details, `revision`, `hasLogo`, and `json`, the dashboard of the latest revision |
-| `GET /dashboards/<id>/images` | Lists the screenshots, without checksums. `/images/<imageId>/image` serves one byte for byte |
+| `GET /dashboards/<id>` | Returns the listing: its texts, categories, collector details, `revision`, `statusCode`, `hasLogo`, `screenshots`, which lists the images without checksums, and `json`, the dashboard of the latest revision |
+| `GET /dashboards/<id>/images/<imageId>/image` | Serves a screenshot byte for byte |
 | `GET /dashboards/<id>/logos/large` | Serves the logo |
 | `GET /categories` | Lists the valid category slugs |
 | `POST /dashboards/<id>/revisions` | Adds a revision from the multipart part `json`. The answer carries its number as `revision` |
@@ -33,7 +33,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 - Its answer can still show the old `screenshots` and `hasLogo`. A read right after shows the new state.
 - Screenshots are listed in upload order and cannot be reordered, and the same file uploaded twice makes two images. So a new order means removing images and uploading them again.
 - A screenshot over 1 MiB answers `413 PayloadTooLarge`.
-- A PNG or JPEG logo is served byte for byte, so it can be compared by hash. An SVG is rewritten and cannot.
+- A PNG or JPEG logo is served byte for byte, so it can be compared. An SVG is rewritten and cannot.
 - `categories` replaces the set, an empty value clears it, and an unknown slug answers `404 NotFound`.
 - `collectorPlugins` replaces the list, but an empty value leaves it as it is. `collectorType` and `collectorConfig` store any text unchecked.
 - `inputs`, which the website's edit form sends, rewrites the labels of `__inputs` inside the latest revision, without adding one. The action does not send it, so after such an edit the next run publishes the file again.
@@ -43,6 +43,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 - An error is JSON with `code`, `message` and `requestId`.
 - No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
+- No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 
 ## Not verified
 
