@@ -32,7 +32,7 @@ jobs:
           screenshots: grafana/screenshots/*.png
 ```
 
-[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com.
+[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and the listing's Short Description follows the `description` inside it. Each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com.
 
 A run publishes only what differs, so it is safe on every push. Its job summary shows what it did:
 
