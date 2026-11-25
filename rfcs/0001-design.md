@@ -8,7 +8,7 @@ A dashboard shared on grafana.com lives in two places: the repository, where it 
 
 One step makes one listing match the repository:
 
-1. Check the inputs before anything is sent. The run fails on a missing token unless it is a dry run, a missing file, an unknown category or collector type, an image over 1 MiB, or a dashboard file that is not a classic dashboard JSON. A dashboard that refers to a data source by a fixed UID gets a warning, since another Grafana cannot import it.
+1. Check the inputs before anything is sent. The run fails on a missing token unless it is a dry run, a missing file, an unknown category or collector type, an image of a type grafana.com does not take or over 1 MiB, or a dashboard file that is not a classic dashboard JSON. A dashboard that refers to a data source by a fixed UID gets a warning, since another Grafana cannot import it.
 2. Read the listing from grafana.com. One that is still pending, and so not shown there, gets a warning.
 3. Compare it with each part passed as an input.
 4. Publish only the parts that differ: the dashboard as a new revision, then everything else in one listing update.

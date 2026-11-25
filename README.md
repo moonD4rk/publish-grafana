@@ -135,7 +135,7 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 | `name` | The **Dashboard Name** |
 | `description` | The **Short Description**. Default: the `description` inside the dashboard file |
 | `readme-file` | A Markdown file for the **README** |
-| `screenshots` | The **Screenshots**: image files or globs, one per line, in the order to show them. PNG, JPEG, GIF or WebP, 1 MiB each at most |
+| `screenshots` | The **Screenshots**: image files or globs, one per line, in the order to show them. PNG, JPEG or GIF, 1 MiB each at most |
 | `logo` | A PNG or JPEG file for the **Logo** |
 | `categories` | The **Categories**: slugs from [grafana.com/api/categories](https://grafana.com/api/categories), one per line, such as `docker` |
 | `collector-type` | Under **Collector/Agent Details**, the collector that feeds the dashboard: `collectd`, `nodeExporter`, `Snap`, `Telegraf`, `Beats`, `Icinga` or `Other` |
