@@ -29657,7 +29657,6 @@ const SCREENSHOT_TYPES = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
-  ".webp": "image/webp",
 };
 const MAX_SCREENSHOT_BYTES = 1024 * 1024;
 const BEFORE_A_MERGE = /^(pull_request|merge_group)/;

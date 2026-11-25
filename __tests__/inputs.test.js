@@ -19,6 +19,7 @@ const removeWorkspace = createWorkspace({
   "shots/b.png": "b",
   "shots/c.JPG": "c",
   "shots/notes.txt": "notes",
+  "shot.webp": "webp",
   "big/huge.png": Buffer.alloc(1024 * 1024 + 1),
   "logo.svg": "<svg/>",
   "logo.gif": "gif",
@@ -199,6 +200,10 @@ describe("readInputs", () => {
     [
       { screenshots: "shots/notes.txt" },
       "screenshots: shots/notes.txt is not one of .png, .jpg",
+    ],
+    [
+      { screenshots: "shot.webp" },
+      "screenshots: shot.webp is not one of .png, .jpg, .jpeg, .gif",
     ],
     [{ screenshots: "big/huge.png" }, "screenshots: big/huge.png is 1.0 MiB"],
     [

@@ -33,6 +33,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 - Its answer can still show the old `screenshots` and `hasLogo`. A read right after shows the new state.
 - Screenshots are listed in upload order and cannot be reordered, and the same file uploaded twice makes two images. So a new order means removing images and uploading them again.
 - A screenshot over 1 MiB answers `413 PayloadTooLarge`.
+- A PNG, JPEG or GIF screenshot is accepted and served byte for byte. A WebP one, lossless or lossy, answers `409 InvalidArgument`, "Files extension and mime-type do not match", and changes nothing. So the action refuses a WebP file itself.
 - A PNG or JPEG logo is served byte for byte, so it can be compared. An SVG is rewritten and cannot.
 - A text is stored as sent, and an empty `description` or `readme` clears it. Node, like a browser, sends a multipart text with CRLF line breaks, so the action compares texts without regard to the kind of line break.
 - `categories` replaces the set, an empty value clears it, and an unknown slug answers `404 NotFound`.
@@ -45,7 +46,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 - An error is JSON with `code`, `message` and `requestId`.
 - A token that grafana.com does not know answers `401 InvalidCredentials`, on a read as on a write. So a mistyped token fails the run before anything is sent.
-- A token with the `dashboards:write` scope alone reads the listing, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
+- A token with the `dashboards:write` scope alone reads the listing, publishes a revision, updates the listing's texts, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
 - No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
 - No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 
