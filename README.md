@@ -52,7 +52,7 @@ The action updates a dashboard that is already on grafana.com, so upload it ther
 
 A Grafana Cloud access policy token. An admin of the organization that owns the dashboard creates it:
 
-1. Sign in to the Grafana Cloud portal at grafana.com and select the organization. Then open **Security**, **Access Policies** and **Create access policy**.
+1. Sign in to the Grafana Cloud portal at grafana.com and select the organization. Then open **Security** and **Access policies**, and select **New access policy**.
 2. Fill in the form:
    - **Display name**: any name, such as `publish-grafana`. **Name** follows it.
    - **Realms**: the organization (all stacks).

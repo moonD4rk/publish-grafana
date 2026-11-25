@@ -1,6 +1,6 @@
 # RFC 0002: The grafana.com dashboard API
 
-grafana.com does not document its dashboard API. This RFC holds what the design in [RFC 0001](0001-design.md) relies on, measured on 2026-11-23 and 2026-11-24 on the demo listing, dashboard 26104, with `demo/probe.sh` and with the action itself.
+grafana.com does not document its dashboard API. This RFC holds what the design in [RFC 0001](0001-design.md) relies on, measured from 2026-11-23 to 2026-11-25 on the demo listing, dashboard 26104, with `demo/probe.sh` and with the action itself.
 
 Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer <token>`, from an access policy with the `dashboards:write` scope. A read needs nothing.
 
@@ -45,6 +45,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 - An error is JSON with `code`, `message` and `requestId`.
 - A token that grafana.com does not know answers `401 InvalidCredentials`, on a read as on a write. So a mistyped token fails the run before anything is sent.
+- A token with the `dashboards:write` scope alone reads the listing, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
 - No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
 - No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 

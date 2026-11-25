@@ -47,6 +47,7 @@ One step makes one listing match the repository:
 - The runtime dependencies are the `@actions/*` toolkit only. HTTP, multipart bodies and hashing come from Node.
 - Deciding is kept apart from doing: the plan is a pure function of the inputs and the listing, tested as a table, and one module owns every request to grafana.com.
 - Unit tests never touch the network. Whatever needs a real listing uses the demo listing in `demo/`, dashboard 26104, and never a project's own.
+- A workflow publishes the demo listing on every push to `main` and once a week, with a token that has the `dashboards:write` scope alone, and fails when a second run publishes again. So a change in grafana.com's API shows within a week.
 - A workflow declares the least permissions it needs and pins an outside action by its commit SHA.
 - A release is a tag `vX.Y.Z` on `main`, and the tag `v1` moves to the newest one. The inputs and the outputs are the public interface, so breaking one needs a new major version.
 
