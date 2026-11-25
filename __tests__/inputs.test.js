@@ -27,11 +27,15 @@ const removeWorkspace = createWorkspace({
 afterAll(removeWorkspace);
 
 const read = (inputs) => {
-  core.setInputs({ "dashboard-id": "26104", ...inputs });
+  core.setInputs({ "dashboard-id": "26104", "dry-run": "true", ...inputs });
   return readInputs();
 };
 
 describe("readInputs", () => {
+  beforeEach(() => {
+    delete process.env.GITHUB_EVENT_NAME;
+  });
+
   it("reads every part that was passed", () => {
     const { dashboardId, wanted } = read({
       "dashboard-file": "dashboard.json",
@@ -93,38 +97,60 @@ describe("readInputs", () => {
   );
 
   it.each([
-    ["no token", { name: "Demo" }, true],
-    ["no token and dry-run", { name: "Demo", "dry-run": "true" }, true],
-    ["a token", { name: "Demo", token: "secret" }, false],
+    ["dry-run: true and no token", { "dry-run": "true" }, true],
+    ["dry-run: true and a token", { "dry-run": "true", token: "secret" }, true],
+    ["a token", { "dry-run": "", token: "secret" }, false],
     [
-      "a token and dry-run",
-      { name: "Demo", token: "secret", "dry-run": "true" },
-      true,
-    ],
-    [
-      "a token and no dry-run",
-      { name: "Demo", token: "secret", "dry-run": "false" },
+      "dry-run: false and a token",
+      { "dry-run": "false", token: "secret" },
       false,
     ],
   ])("with %s, dryRun is %s", (_, inputs, dryRun) => {
-    expect(read(inputs).dryRun).toBe(dryRun);
-  });
-
-  it("says that a run without a token is a dry run", () => {
-    read({ name: "Demo" });
-
-    expect(core.notice).toHaveBeenCalledWith(
-      expect.stringContaining("token is empty, so this is a dry run"),
-    );
+    expect(read({ name: "Demo", ...inputs }).dryRun).toBe(dryRun);
   });
 
   it.each([
-    ["a dry run that was asked for", { name: "Demo", "dry-run": "true" }],
-    ["a run with a token", { name: "Demo", token: "secret" }],
-  ])("says nothing about %s", (_, inputs) => {
-    read(inputs);
+    ["pull_request", { token: "secret" }, true],
+    ["pull_request", {}, true],
+    ["pull_request_target", { token: "secret" }, true],
+    ["merge_group", { token: "secret" }, true],
+    ["pull_request", { "dry-run": "false", token: "secret" }, false],
+    ["push", { token: "secret" }, false],
+    ["schedule", { "dry-run": "true" }, true],
+  ])("on %s with %j, dryRun is %s", (event, inputs, dryRun) => {
+    process.env.GITHUB_EVENT_NAME = event;
 
-    expect(core.notice).not.toHaveBeenCalled();
+    expect(read({ name: "Demo", "dry-run": "", ...inputs }).dryRun).toBe(
+      dryRun,
+    );
+  });
+
+  it("says why a run in a pull request publishes nothing", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    read({ name: "Demo", "dry-run": "" });
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "the event is pull_request, so nothing is published",
+      ),
+    );
+  });
+
+  it("says nothing about a dry run that was asked for", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    read({ name: "Demo", "dry-run": "true" });
+
+    expect(core.info).not.toHaveBeenCalled();
+  });
+
+  it("fails in a pull request that asks to publish without a token", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    expect(() => read({ name: "Demo", "dry-run": "false" })).toThrow(
+      "token: it is empty, so the run cannot publish",
+    );
   });
 
   it("masks the token", () => {
@@ -189,8 +215,12 @@ describe("readInputs", () => {
       "Input does not meet YAML 1.2: dry-run",
     ],
     [
+      { name: "x", "dry-run": "" },
+      "token: it is empty, so the run cannot publish",
+    ],
+    [
       { name: "x", "dry-run": "false" },
-      "token: it is empty, and dry-run: false asks to publish",
+      "token: it is empty, so the run cannot publish",
     ],
   ])("fails on %j", (inputs, message) => {
     expect(() => read(inputs)).toThrow(message);

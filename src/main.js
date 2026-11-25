@@ -36,7 +36,12 @@ export async function run({ fetch } = {}) {
     const { error, ...result } = dryRun
       ? { entries: entries.map(preview), revision: current.revision }
       : await apply(client, dashboardId, { wanted, current, entries });
-    await report(result.entries, { ...current, ...result, dryRun });
+    await report(result.entries, {
+      ...current,
+      ...result,
+      dryRun,
+      failed: Boolean(error),
+    });
     if (error) throw error;
   } catch (error) {
     core.setFailed(error instanceof Error ? error.message : String(error));

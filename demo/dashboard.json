@@ -58,6 +58,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Requests per second across all services: the latest value.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -107,6 +108,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Share of requests that failed: the latest value.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -161,6 +163,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "95th percentile of the response time: the latest value.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -215,6 +218,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "How many services pass their health check: the latest value.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -263,6 +267,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Requests per second of each service over time.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -347,6 +352,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Jobs waiting in each service's queue: the latest value.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -418,6 +424,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Response time over time: the median and the 95th and 99th percentiles.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -502,6 +509,7 @@
         "type": "grafana-testdata-datasource",
         "uid": "${DS_TESTDATA}"
       },
+      "description": "Each service with its version, status and replicas.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },

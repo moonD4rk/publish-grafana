@@ -6,7 +6,14 @@ const oneLine = (text) => (text ?? "").replace(/\s+/g, " ");
 const escapeHtml = (text) =>
   text.replace(/[&<>]/g, (char) => `&#${char.charCodeAt(0)};`);
 
-export async function report(entries, { dryRun, revision, url }) {
+function heading(outcomes, { dryRun, failed }) {
+  if (dryRun) return "Dry run: nothing was published";
+  if (failed) return "Failed: not everything was published";
+  if (outcomes.includes("published")) return "Published";
+  return "Up to date: nothing to publish";
+}
+
+export async function report(entries, { dryRun, failed, revision, url }) {
   const rows = entries.map(({ part, outcome, detail }) => [
     part,
     outcome,
@@ -25,8 +32,9 @@ export async function report(entries, { dryRun, revision, url }) {
   core.setOutput("url", url);
 
   if (process.env.GITHUB_STEP_SUMMARY) {
+    const outcomes = rows.map(([, outcome]) => outcome);
     await core.summary
-      .addHeading(dryRun ? "Dry run: nothing was published" : "Published", 3)
+      .addHeading(heading(outcomes, { dryRun, failed }), 3)
       .addTable([
         ["Part", "Outcome", "Details"].map((data) => ({ data, header: true })),
         ...rows.map(([part, outcome, detail]) => [
