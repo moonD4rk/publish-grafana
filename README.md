@@ -30,10 +30,9 @@ jobs:
           dashboard-file: grafana/dashboard.json # exported from Grafana
           readme-file: grafana/README.md
           screenshots: grafana/screenshots/*.png
-          dry-run: false # fail when the token is missing
 ```
 
-[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com. With `dry-run: false`, a missing token fails the run instead of making it a dry run that publishes nothing.
+[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com.
 
 A run publishes only what differs, so it is safe on every push. Its job summary shows what it did:
 
@@ -91,7 +90,7 @@ on:
     dashboard-file: grafana/dashboard.json
 ```
 
-On `main` this passes `dry-run: false`, so a missing token fails the run rather than skipping the publish.
+A dry run needs no token, so this also works in a pull request from a fork, which cannot read the secret.
 
 </details>
 
@@ -138,7 +137,7 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 | Input | Description |
 | --- | --- |
 | `dashboard-id` | **Required.** The dashboard's [ID](#dashboard-id) on grafana.com |
-| `token` | The [token](#token) of an access policy with the `dashboards:write` scope. Without it the run is a dry run |
+| `token` | The [token](#token) of an access policy with the `dashboards:write` scope. Required unless `dry-run` is `true` |
 | `dashboard-file` | The [dashboard JSON](#dashboard-file), published as a new revision when it changed. Its `__inputs` are the page's **Data source config** |
 | `name` | The **Dashboard Name** |
 | `description` | The **Short Description**. Default: the `description` inside the dashboard file |
@@ -149,7 +148,7 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 | `collector-type` | Under **Collector/Agent Details**, the collector that feeds the dashboard: `collectd`, `nodeExporter`, `Snap`, `Telegraf`, `Beats`, `Icinga` or `Other` |
 | `collector-plugins` | The collector's plugins, one per line |
 | `collector-config` | A text on how to set the collector up |
-| `dry-run` | Default: publish with a token, dry run without one. `true` never publishes and reports what would change. `false` fails when the token is missing |
+| `dry-run` | `true` publishes nothing and reports what would change, and needs no token. Default: `false` |
 
 ## Outputs
 
@@ -163,7 +162,7 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 ## Good to know
 
 - **Safe on every push.** Only what changed is published, so an unchanged dashboard never gets a new revision.
-- **No token, no changes.** Without `token` the run reports what it would publish and changes nothing, so pull requests from forks can run it.
+- **A missing token fails the run.** So a secret with a mistyped name shows on the first run. Only a dry run needs no token, so pull requests from forks can run one.
 - **The token goes to grafana.com only.** It is masked in the log, and the action has no other dependency at run time than GitHub's own toolkit.
 - **One dashboard per step.** For several, repeat the step or use a matrix.
 - **The catalog only.** It does not create a dashboard, and it does not deploy one to a Grafana instance.

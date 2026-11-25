@@ -29129,14 +29129,6 @@ function warning(message, properties = {}) {
     issueCommand('warning', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
- * Adds a notice issue
- * @param message notice issue message. Errors will be converted to string via toString()
- * @param properties optional properties to add to the annotation.
- */
-function notice(message, properties = {}) {
-    issueCommand('notice', toCommandProperties(properties), message instanceof Error ? message.toString() : message);
-}
-/**
  * Writes info to log with console.log.
  * @param message info message
  */
@@ -29782,21 +29774,14 @@ const SOURCES = {
 };
 
 function readDryRun(token) {
-  const asked =
-    getInput("dry-run") === ""
-      ? undefined
-      : getBooleanInput("dry-run");
-  if (asked === false && !token) {
+  const dryRun =
+    getInput("dry-run") !== "" && getBooleanInput("dry-run");
+  if (!dryRun && !token) {
     throw new Error(
-      "token: it is empty, and dry-run: false asks to publish. Check the secret's name, and that this run may read it: a pull request from a fork may not",
+      "token: it is empty, so the run cannot publish. Check the secret's name, and that this run may read it: a pull request from a fork may not. A run with dry-run: true needs no token",
     );
   }
-  if (asked === undefined && !token) {
-    notice(
-      "token is empty, so this is a dry run and nothing is published. With dry-run: false that is an error instead",
-    );
-  }
-  return asked ?? !token;
+  return dryRun;
 }
 
 function readInputs() {
@@ -29835,16 +29820,14 @@ const oneLine = (text) => (text ?? "").replace(/\s+/g, " ");
 const escapeHtml = (text) =>
   text.replace(/[&<>]/g, (char) => `&#${char.charCodeAt(0)};`);
 
-function heading(outcomes, dryRun) {
+function heading(outcomes, { dryRun, failed }) {
   if (dryRun) return "Dry run: nothing was published";
-  if (outcomes.includes("not published")) {
-    return "Failed: not everything was published";
-  }
+  if (failed) return "Failed: not everything was published";
   if (outcomes.includes("published")) return "Published";
   return "Up to date: nothing to publish";
 }
 
-async function report(entries, { dryRun, revision, url }) {
+async function report(entries, { dryRun, failed, revision, url }) {
   const rows = entries.map(({ part, outcome, detail }) => [
     part,
     outcome,
@@ -29865,7 +29848,7 @@ async function report(entries, { dryRun, revision, url }) {
   if (process.env.GITHUB_STEP_SUMMARY) {
     const outcomes = rows.map(([, outcome]) => outcome);
     await summary
-      .addHeading(heading(outcomes, dryRun), 3)
+      .addHeading(heading(outcomes, { dryRun, failed }), 3)
       .addTable([
         ["Part", "Outcome", "Details"].map((data) => ({ data, header: true })),
         ...rows.map(([part, outcome, detail]) => [
@@ -29909,7 +29892,12 @@ async function run({ fetch } = {}) {
     const { error, ...result } = dryRun
       ? { entries: entries.map(preview), revision: current.revision }
       : await apply(client, dashboardId, { wanted, current, entries });
-    await report(result.entries, { ...current, ...result, dryRun });
+    await report(result.entries, {
+      ...current,
+      ...result,
+      dryRun,
+      failed: Boolean(error),
+    });
     if (error) throw error;
   } catch (error) {
     setFailed(error instanceof Error ? error.message : String(error));

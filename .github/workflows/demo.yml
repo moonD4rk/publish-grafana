@@ -31,7 +31,6 @@ jobs:
         uses: ./
         with:
           token: ${{ secrets.GRAFANA_COM_TOKEN }}
-          dry-run: false
           dashboard-id: 26104
           dashboard-file: demo/dashboard.json
           readme-file: demo/README.md
@@ -45,7 +44,6 @@ jobs:
         uses: ./
         with:
           token: ${{ secrets.GRAFANA_COM_TOKEN }}
-          dry-run: false
           dashboard-id: 26104
           dashboard-file: demo/dashboard.json
           readme-file: demo/README.md

@@ -140,21 +140,14 @@ const SOURCES = {
 };
 
 function readDryRun(token) {
-  const asked =
-    core.getInput("dry-run") === ""
-      ? undefined
-      : core.getBooleanInput("dry-run");
-  if (asked === false && !token) {
+  const dryRun =
+    core.getInput("dry-run") !== "" && core.getBooleanInput("dry-run");
+  if (!dryRun && !token) {
     throw new Error(
-      "token: it is empty, and dry-run: false asks to publish. Check the secret's name, and that this run may read it: a pull request from a fork may not",
+      "token: it is empty, so the run cannot publish. Check the secret's name, and that this run may read it: a pull request from a fork may not. A run with dry-run: true needs no token",
     );
   }
-  if (asked === undefined && !token) {
-    core.notice(
-      "token is empty, so this is a dry run and nothing is published. With dry-run: false that is an error instead",
-    );
-  }
-  return asked ?? !token;
+  return dryRun;
 }
 
 export function readInputs() {

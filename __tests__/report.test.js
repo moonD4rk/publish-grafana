@@ -50,7 +50,12 @@ describe("report", () => {
   it("writes the job summary when the runner has one", async () => {
     process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
 
-    await report(entries("published"), { dryRun: false, revision: 10, url });
+    await report(entries("published"), {
+      dryRun: false,
+      failed: true,
+      revision: 10,
+      url,
+    });
 
     const [header, ...rows] = core.summary.addTable.mock.calls[0][0];
     expect(core.summary.addHeading).toHaveBeenCalledWith(
@@ -84,15 +89,23 @@ describe("report", () => {
   });
 
   it.each([
-    [["published", "unchanged"], "Published"],
-    [["unchanged"], "Up to date: nothing to publish"],
-    [["published", "not published"], "Failed: not everything was published"],
-  ])("heads the summary of a run with %j as %j", async (outcomes, title) => {
-    process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
-    const parts = outcomes.map((outcome, i) => ({ part: `p${i}`, outcome }));
+    [["published", "unchanged"], false, "Published"],
+    [["unchanged"], false, "Up to date: nothing to publish"],
+    [
+      ["published", "not published"],
+      true,
+      "Failed: not everything was published",
+    ],
+    [["published"], true, "Failed: not everything was published"],
+  ])(
+    "heads a run with %j, failed %j, as %j",
+    async (outcomes, failed, title) => {
+      process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
+      const parts = outcomes.map((outcome, i) => ({ part: `p${i}`, outcome }));
 
-    await report(parts, { dryRun: false, revision: 10, url });
+      await report(parts, { dryRun: false, failed, revision: 10, url });
 
-    expect(core.summary.addHeading).toHaveBeenCalledWith(title, 3);
-  });
+      expect(core.summary.addHeading).toHaveBeenCalledWith(title, 3);
+    },
+  );
 });

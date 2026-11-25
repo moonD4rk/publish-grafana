@@ -26,6 +26,7 @@ afterAll(removeWorkspace);
 
 const everything = {
   "dashboard-id": "26104",
+  "dry-run": "true",
   "dashboard-file": "dashboard.json",
   name: "publish-grafana demo",
   "readme-file": "README.md",
@@ -46,6 +47,10 @@ const grafana = (answer = listing()) =>
 const outputs = () => Object.fromEntries(core.setOutput.mock.calls);
 
 describe("run", () => {
+  afterEach(() => {
+    delete process.env.GITHUB_STEP_SUMMARY;
+  });
+
   it("reports a listing that matches the repository as unchanged", async () => {
     core.setInputs(everything);
 
@@ -90,7 +95,11 @@ describe("run", () => {
   });
 
   it("warns that a pending listing is not shown", async () => {
-    core.setInputs({ "dashboard-id": "26104", name: "publish-grafana demo" });
+    core.setInputs({
+      "dashboard-id": "26104",
+      "dry-run": "true",
+      name: "publish-grafana demo",
+    });
 
     await run({ fetch: grafana(listing({ statusCode: "pending" })) });
 
@@ -164,16 +173,11 @@ describe("run", () => {
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining("name: would publish"),
     );
-    expect(core.notice).not.toHaveBeenCalled();
   });
 
-  it("fails before any request when dry-run is false and the token is empty", async () => {
+  it("fails before any request when the token is empty", async () => {
     const fetch = grafana();
-    core.setInputs({
-      "dashboard-id": "26104",
-      name: "Renamed",
-      "dry-run": "false",
-    });
+    core.setInputs({ "dashboard-id": "26104", name: "Renamed" });
 
     await run({ fetch });
 
@@ -184,12 +188,17 @@ describe("run", () => {
   });
 
   it("reports what was not published before it fails", async () => {
+    process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
     core.setInputs({ "dashboard-id": "26104", name: "Renamed", token: "t" });
 
     await run({ fetch: grafana() });
 
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining("name: not published"),
+    );
+    expect(core.summary.addHeading).toHaveBeenCalledWith(
+      "Failed: not everything was published",
+      3,
     );
     expect(outputs().changed).toBe(false);
     expect(core.setFailed).toHaveBeenCalledWith(
@@ -198,7 +207,7 @@ describe("run", () => {
   });
 
   it("fails when the dashboard does not exist", async () => {
-    core.setInputs({ "dashboard-id": "404", name: "Demo" });
+    core.setInputs({ "dashboard-id": "404", "dry-run": "true", name: "Demo" });
 
     await run({ fetch: grafana() });
 
