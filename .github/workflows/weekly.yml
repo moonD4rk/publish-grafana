@@ -35,6 +35,10 @@ jobs:
         with:
           languages: javascript-typescript
           build-mode: none
+          # dist/ is the bundle of src/ and its dependencies, which Dependabot watches
+          config: |
+            paths-ignore:
+              - dist
 
       - name: Analyze
         if: steps.repository.outputs.private == 'false'

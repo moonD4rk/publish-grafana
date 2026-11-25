@@ -29542,6 +29542,7 @@ const plan = (wanted, current) =>
   });
 
 const MEDIA = ["screenshots", "logo"];
+const REREAD_AFTER_MS = [1000, 2000, 4000];
 
 const without = (object, keys) =>
   Object.fromEntries(
@@ -29549,9 +29550,22 @@ const without = (object, keys) =>
   );
 
 const differing = (wanted, current) =>
-  plan(wanted, current)
-    .filter((entry) => entry.change)
-    .map((entry) => entry.part);
+  plan(wanted, current).filter((entry) => entry.change);
+
+// grafana.com can serve the old listing for a moment after it answered a write, so a difference is read again
+async function readSettled(read, wanted, wait) {
+  let fresh = await read();
+  let off = differing(wanted, fresh);
+  for (const ms of REREAD_AFTER_MS) {
+    if (off.length === 0) break;
+    const parts = off.map((entry) => entry.part).join(", ");
+    debug(`the listing differs in ${parts}: reading it again in ${ms} ms`);
+    await wait(ms);
+    fresh = await read();
+    off = differing(wanted, fresh);
+  }
+  return { fresh, off };
+}
 
 // A write is sent once: when its outcome is unknown, the listing as read again decides
 async function sendOnce(write, landed) {
@@ -29565,8 +29579,14 @@ async function sendOnce(write, landed) {
   }
 }
 
-async function apply(client, id, { wanted, current, entries }) {
-  const read = (parts) => readListing(client, id, parts);
+async function apply(
+  client,
+  id,
+  { wanted, current, entries, wait = pause },
+) {
+  const settled = (parts) =>
+    readSettled(() => readListing(client, id, parts), parts, wait);
+  const landed = (parts) => async () => (await settled(parts)).off.length === 0;
   const published = new Set();
   let revision = current.revision;
   let expected = wanted;
@@ -29580,7 +29600,7 @@ async function apply(client, id, { wanted, current, entries }) {
       const file = { revision: wanted.revision };
       const answer = await sendOnce(
         () => client.publishRevision(id, upload),
-        async () => differing(file, await read({})).length === 0,
+        landed(file),
       );
       published.add("revision");
       revision = answer?.revision ?? revision;
@@ -29596,10 +29616,7 @@ async function apply(client, id, { wanted, current, entries }) {
     const listing = without(expected, ["revision"]);
     const fields = plan(listing, state).flatMap((entry) => entry.change ?? []);
     if (fields.length > 0) {
-      await sendOnce(
-        () => client.updateListing(id, fields),
-        async () => differing(listing, await read(listing)).length === 0,
-      );
+      await sendOnce(() => client.updateListing(id, fields), landed(listing));
     }
     for (const entry of entries) if (entry.change) published.add(entry.part);
   } catch (caught) {
@@ -29613,12 +29630,15 @@ async function apply(client, id, { wanted, current, entries }) {
 
   if (!error && published.size > 0) {
     try {
-      const fresh = await read({});
+      const { fresh, off } = await settled(without(expected, MEDIA));
       revision = fresh.revision;
-      const off = differing(without(expected, MEDIA), fresh);
       if (off.length > 0) {
+        const parts = off
+          .map(({ part, detail }) => `${part}${detail && ` (${detail})`}`)
+          .join(", ")
+          .replace(/\s+/g, " ");
         warning(
-          `grafana.com holds something else than what was sent for ${off.join(", ")}, so the next run will publish it again`,
+          `grafana.com holds something else than what was sent, so the next run will publish it again: ${parts}`,
         );
       }
     } catch (caught) {

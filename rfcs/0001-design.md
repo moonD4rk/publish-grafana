@@ -12,7 +12,7 @@ One step makes one listing match the repository:
 2. Read the listing from grafana.com. One that is still pending, and so not shown there, gets a warning.
 3. Compare it with each part passed as an input.
 4. Publish only the parts that differ: the dashboard as a new revision, then everything else in one listing update.
-5. Read the listing back, and warn when grafana.com holds something else than what was sent, since the next run would then publish it again.
+5. Read the listing back, and warn when grafana.com holds something else than what was sent, since the next run would then publish it again. A difference is read again first, since grafana.com can serve the old listing for a moment after an update.
 6. Report what changed and how each part differed, in the outputs and the job summary. A run that fails halfway still reports what it published.
 
 | Part | Inputs | Compared |

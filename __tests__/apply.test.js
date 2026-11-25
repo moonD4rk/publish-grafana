@@ -34,16 +34,30 @@ const changes = async (client, wanted) => {
     .map((entry) => entry.part);
 };
 
+const wait = jest.fn();
+
 async function publish(client, wanted) {
   const current = await readListing(client, "26104", wanted);
   const entries = plan(wanted, current);
-  const result = await apply(client, "26104", { wanted, current, entries });
+  const result = await apply(client, "26104", {
+    wanted,
+    current,
+    entries,
+    wait,
+  });
   return {
     ...result,
     outcomes: Object.fromEntries(
       result.entries.map((entry) => [entry.part, entry.outcome]),
     ),
   };
+}
+
+// grafana.com can serve the listing as it was to the first read after an update
+async function lagging(client) {
+  const read = client.listing.getMockImplementation();
+  const old = await read();
+  client.listing.mockImplementationOnce(read).mockResolvedValueOnce(old);
 }
 
 const offline = () => new Error("POST got no answer from grafana.com");
@@ -225,6 +239,24 @@ describe("apply", () => {
     expect(result.error.message).toContain("got no answer");
     expect(result.outcomes).toEqual({ revision: "not published" });
     expect(client.publishRevision).toHaveBeenCalledTimes(1);
+    expect(wait.mock.calls).toEqual([[1000], [2000], [4000]]);
+  });
+
+  it("takes a write that got no answer as landed when a later read shows it", async () => {
+    const client = fakeClient();
+    const update = client.updateListing.getMockImplementation();
+    client.updateListing.mockImplementation(async (...request) => {
+      await update(...request);
+      throw offline();
+    });
+    await lagging(client);
+
+    const result = await publish(client, { name: "Renamed" });
+
+    expect(result.error).toBeUndefined();
+    expect(result.outcomes).toEqual({ name: "published" });
+    expect(client.updateListing).toHaveBeenCalledTimes(1);
+    expect(wait.mock.calls).toEqual([[1000]]);
   });
 
   it("takes a refusal for nothing to update as done when the listing matches", async () => {
@@ -280,15 +312,28 @@ describe("apply", () => {
     });
   });
 
-  it("warns when grafana.com holds something else than what was sent", async () => {
+  it("reads the listing again when grafana.com still serves the old one", async () => {
+    const client = fakeClient();
+    await lagging(client);
+
+    const result = await publish(client, { name: "Renamed" });
+
+    expect(result.error).toBeUndefined();
+    expect(result.outcomes).toEqual({ name: "published" });
+    expect(wait.mock.calls).toEqual([[1000]]);
+    expect(core.warning).not.toHaveBeenCalled();
+  });
+
+  it("warns when grafana.com still holds something else after three more reads", async () => {
     const client = fakeClient();
     client.updateListing.mockResolvedValue({});
 
     const result = await publish(client, { name: "Renamed", readme: "# New" });
 
     expect(result.error).toBeUndefined();
+    expect(wait.mock.calls).toEqual([[1000], [2000], [4000]]);
     expect(core.warning).toHaveBeenCalledWith(
-      expect.stringContaining("for name, readme, so the next run"),
+      'grafana.com holds something else than what was sent, so the next run will publish it again: name ("publish-grafana demo" → "Renamed"), readme ("# publish-grafana demo" → "# New")',
     );
   });
 
