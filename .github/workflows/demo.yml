@@ -1,0 +1,64 @@
+name: Demo
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: 43 6 * * 1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: demo
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish the demo listing
+    if: github.repository == 'moond4rk/publish-grafana'
+    runs-on: ubuntu-latest
+    environment: demo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Publish the demo listing
+        uses: ./
+        with:
+          token: ${{ secrets.GRAFANA_COM_TOKEN }}
+          dry-run: false
+          dashboard-id: 26104
+          dashboard-file: demo/dashboard.json
+          readme-file: demo/README.md
+          screenshots: |
+            demo/screenshots/overview.png
+            demo/screenshots/requests.png
+          logo: demo/logo.png
+
+      - name: Run it a second time
+        id: again
+        uses: ./
+        with:
+          token: ${{ secrets.GRAFANA_COM_TOKEN }}
+          dry-run: false
+          dashboard-id: 26104
+          dashboard-file: demo/dashboard.json
+          readme-file: demo/README.md
+          screenshots: |
+            demo/screenshots/overview.png
+            demo/screenshots/requests.png
+          logo: demo/logo.png
+
+      - name: Check that the second run published nothing
+        env:
+          CHANGES: ${{ steps.again.outputs.changes }}
+        run: |
+          if [ -n "$CHANGES" ]; then
+            echo "::error::the second run published again: $CHANGES"
+            exit 1
+          fi

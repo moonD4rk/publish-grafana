@@ -16,3 +16,5 @@ Import the dashboard by its ID and choose the TestData data source when Grafana 
 - Requests by service and latency over time
 - Queue depth per service
 - The services with their version, status and replicas
+
+Each panel says what it shows in its description, behind the info icon next to its title.

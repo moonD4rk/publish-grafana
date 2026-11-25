@@ -53,7 +53,10 @@ describe("report", () => {
     await report(entries("published"), { dryRun: false, revision: 10, url });
 
     const [header, ...rows] = core.summary.addTable.mock.calls[0][0];
-    expect(core.summary.addHeading).toHaveBeenCalledWith("Published", 3);
+    expect(core.summary.addHeading).toHaveBeenCalledWith(
+      "Failed: not everything was published",
+      3,
+    );
     expect(header.map((cell) => cell.data)).toEqual([
       "Part",
       "Outcome",
@@ -78,5 +81,18 @@ describe("report", () => {
       "Dry run: nothing was published",
       3,
     );
+  });
+
+  it.each([
+    [["published", "unchanged"], "Published"],
+    [["unchanged"], "Up to date: nothing to publish"],
+    [["published", "not published"], "Failed: not everything was published"],
+  ])("heads the summary of a run with %j as %j", async (outcomes, title) => {
+    process.env.GITHUB_STEP_SUMMARY = "/tmp/summary";
+    const parts = outcomes.map((outcome, i) => ({ part: `p${i}`, outcome }));
+
+    await report(parts, { dryRun: false, revision: 10, url });
+
+    expect(core.summary.addHeading).toHaveBeenCalledWith(title, 3);
   });
 });

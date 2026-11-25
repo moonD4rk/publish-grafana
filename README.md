@@ -4,8 +4,6 @@ A GitHub Action that publishes your Grafana dashboard to [grafana.com](https://g
 
 See it at work: this action publishes the [demo dashboard](https://grafana.com/grafana/dashboards/26104-publish-grafana-demo/) from [`demo/`](demo/).
 
-> **Status:** in development — nothing is released yet. This README describes v1.
-
 ## Usage
 
 Save this as `.github/workflows/publish-grafana.yml`:
@@ -32,9 +30,10 @@ jobs:
           dashboard-file: grafana/dashboard.json # exported from Grafana
           readme-file: grafana/README.md
           screenshots: grafana/screenshots/*.png
+          dry-run: false # fail when the token is missing
 ```
 
-[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further input is one more part of the dashboard's page. A part you pass is kept equal to the repository. A part you leave out stays as it is on grafana.com.
+[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com. With `dry-run: false`, a missing token fails the run instead of making it a dry run that publishes nothing.
 
 A run publishes only what differs, so it is safe on every push. Its job summary shows what it did:
 
