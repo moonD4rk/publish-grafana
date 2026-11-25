@@ -1,8 +1,12 @@
 # publish-grafana
 
-A GitHub Action that publishes your Grafana dashboard to [grafana.com](https://grafana.com/grafana/dashboards/) and keeps its page there up to date: the JSON, the README, the screenshots, the logo and more.
+[![GitHub Marketplace](https://img.shields.io/badge/GitHub-Marketplace-blue?logo=github)](https://github.com/marketplace/actions/publish-dashboard-to-grafana-com) [![Release](https://img.shields.io/github/v/release/moond4rk/publish-grafana)](https://github.com/moonD4rk/publish-grafana/releases/latest) [![Demo](https://github.com/moonD4rk/publish-grafana/actions/workflows/demo.yml/badge.svg)](https://github.com/moonD4rk/publish-grafana/actions/workflows/demo.yml) [![License](https://img.shields.io/github/license/moond4rk/publish-grafana)](LICENSE)
 
-See it at work: this action publishes the [demo dashboard](https://grafana.com/grafana/dashboards/26104-publish-grafana-demo/) from [`demo/`](demo/).
+A GitHub Action that publishes your Grafana dashboard to [grafana.com](https://grafana.com/grafana/dashboards/) and keeps its page there up to date from the files in your repository: the dashboard JSON, the README, the screenshots, the logo and more.
+
+Without it, every change means exporting the JSON and uploading a new revision by hand, and the README and the screenshots on the page fall behind. With it, the page follows your repository.
+
+See it at work: this action publishes the [demo dashboard](https://grafana.com/grafana/dashboards/26104-publish-grafana-demo/) from [`demo/`](demo/), and each of its [runs](https://github.com/moonD4rk/publish-grafana/actions/workflows/demo.yml) shows what it did.
 
 ## Usage
 
@@ -32,9 +36,12 @@ jobs:
           screenshots: grafana/screenshots/*.png
 ```
 
-[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and the listing's Short Description follows the `description` inside it. Each further part you pass, here the README and the screenshots, is kept equal to the repository. A part you leave out stays as it is on grafana.com.
+The first three values keep the dashboard JSON up to date, and [Setup](#setup) says where each comes from. The other two add the README and the screenshots. A run:
 
-A run publishes only what differs, so it is safe on every push. Its job summary shows what it did:
+1. Reads the dashboard's page from grafana.com.
+2. Compares it with each part you pass: here the dashboard JSON, the README and the screenshots.
+3. Publishes only the parts that differ. A changed dashboard JSON becomes a new revision.
+4. Reports what it did in the job summary:
 
 | Part        | Outcome   | Details                                            |
 | ----------- | --------- | -------------------------------------------------- |
@@ -42,7 +49,11 @@ A run publishes only what differs, so it is safe on every push. Its job summary 
 | readme      | published | +3 -1 lines                                        |
 | screenshots | unchanged |                                                    |
 
+So it is safe on every push: when nothing changed, nothing is published. A part you do not pass, here the logo, stays as it is on grafana.com. The one exception is the page's **Short Description**, which follows the `description` inside the dashboard file unless you pass `description`.
+
 ## Setup
+
+Three things, once.
 
 ### Dashboard ID
 
@@ -88,7 +99,9 @@ With the ref in its concurrency group, a preview never takes the place of a publ
 </details>
 
 <details>
-<summary>Publish when a release is published</summary>
+<summary>Publish with each release instead of each push</summary>
+
+Use this when the dashboard shows metrics that only the next release of your project has. Published on every push, it would be on grafana.com before that release is out.
 
 ```yaml
 on:
@@ -145,6 +158,8 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 
 ## Outputs
 
+To read an output, give the step an `id`, such as `publish`, and use `${{ steps.publish.outputs.changed }}`.
+
 | Output | Description |
 | --- | --- |
 | `changed` | `true` when something was published, or would have been in a dry run |
@@ -155,11 +170,13 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 ## Good to know
 
 - **Safe on every push.** Only what changed is published, so an unchanged dashboard never gets a new revision.
+- **The repository wins.** For a part you pass, the next run replaces what was edited on the website.
 - **A pull request only previews.** There the run is a dry run unless you pass `dry-run: false`, so a branch is not published before it is merged.
 - **A missing token fails the run.** So a secret with a mistyped name shows on the first run. Only a dry run needs no token.
 - **The token goes to grafana.com only.** It is masked in the log, and the action has no other dependency at run time than GitHub's own toolkit.
-- **One dashboard per step.** For several, repeat the step or use a matrix.
-- **The catalog only.** It does not create a dashboard, and it does not deploy one to a Grafana instance.
+- **grafana.com does not document this API.** What the action relies on is [written down](rfcs/0002-grafana-api.md), and a [weekly run](https://github.com/moonD4rk/publish-grafana/actions/workflows/demo.yml) publishes the demo dashboard, so a change in the API shows within a week.
+- **`@v1` follows the newest 1.x release.** To stay on one version, use the commit SHA of a [release](https://github.com/moonD4rk/publish-grafana/releases) instead.
+- **The catalog only.** It does not create a dashboard, and it does not deploy one to a Grafana instance. One step handles one dashboard.
 
 ## Contributing
 
