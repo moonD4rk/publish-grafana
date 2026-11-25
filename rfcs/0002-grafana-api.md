@@ -45,7 +45,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 - An error is JSON with `code`, `message` and `requestId`.
 - A token that grafana.com does not know answers `401 InvalidCredentials`, on a read as on a write. So a mistyped token fails the run before anything is sent.
-- A token with the `dashboards:write` scope alone reads the listing, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
+- A token with the `dashboards:write` scope alone reads the listing, publishes a revision, updates the listing's texts, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
 - No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
 - No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 
