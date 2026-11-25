@@ -139,6 +139,24 @@ const SOURCES = {
   "collector-config": { input: "collector-config" },
 };
 
+function readDryRun(token) {
+  const asked =
+    core.getInput("dry-run") === ""
+      ? undefined
+      : core.getBooleanInput("dry-run");
+  if (asked === false && !token) {
+    throw new Error(
+      "token: it is empty, and dry-run: false asks to publish. Check the secret's name, and that this run may read it: a pull request from a fork may not",
+    );
+  }
+  if (asked === undefined && !token) {
+    core.notice(
+      "token is empty, so this is a dry run and nothing is published. With dry-run: false that is an error instead",
+    );
+  }
+  return asked ?? !token;
+}
+
 export function readInputs() {
   const dashboardId = core.getInput("dashboard-id", { required: true });
   if (!/^[1-9]\d*$/.test(dashboardId)) {
@@ -148,8 +166,7 @@ export function readInputs() {
   }
   const token = core.getInput("token");
   if (token) core.setSecret(token);
-  const dryRun =
-    core.getInput("dry-run") !== "" && core.getBooleanInput("dry-run");
+  const dryRun = readDryRun(token);
 
   const wanted = {};
   for (const [part, source] of Object.entries(SOURCES)) {
@@ -162,5 +179,10 @@ export function readInputs() {
     const inputs = Object.values(SOURCES).map((source) => source.input);
     throw new Error(`nothing to publish: pass one of ${inputs.join(", ")}`);
   }
-  return { dashboardId, token, dryRun: dryRun || !token, wanted };
+  // grafana.com serves the listing's description inside the dashboard, so the file's own is the default
+  const own = wanted.revision?.dashboard.description;
+  if (!wanted.description && typeof own === "string" && own.trim()) {
+    wanted.description = own;
+  }
+  return { dashboardId, token, dryRun, wanted };
 }

@@ -24,6 +24,8 @@ const current = {
 
 const change = (part, wanted, state = current) =>
   plan({ [part]: wanted }, state)[0].change;
+const detail = (part, wanted, state = current) =>
+  plan({ [part]: wanted }, state)[0].detail;
 
 describe("plan", () => {
   it("has one entry per part that was passed, in the order of PARTS", () => {
@@ -158,6 +160,35 @@ describe("plan", () => {
       ["an SVG and no logo on the listing", svg, none, [["logo", svg]]],
     ])("%s", (_, wanted, state, expected) => {
       expect(change("logo", wanted, state)).toEqual(expected);
+    });
+  });
+
+  describe("detail", () => {
+    const a = image("a");
+    const b = image("b");
+    const c = image("c");
+    const none = { ...current, hasLogo: false, logo: undefined };
+
+    it.each([
+      ["name", "Demo", null],
+      ["name", "Demo 2", '"Demo" → "Demo 2"'],
+      ["description", "x".repeat(61), `"A demo" → "${"x".repeat(59)}…"`],
+      ["readme", "# Demo\n\nMore\nlines\n", "+2 -1 lines"],
+      ["collector-config", "apt install", '"" → "apt install"'],
+      ["collector-config", "apt update\napt install", "+2 -0 lines"],
+      ["categories", ["docker", "aws"], "adds aws; removes hostmetrics"],
+      ["collector-plugins", ["cpu"], "removes mem"],
+      ["screenshots", [a, b, c], "uploads c.png"],
+      ["screenshots", [b], "removes 1"],
+      ["screenshots", [c, a], "removes 2; uploads c.png, a.png"],
+      ["logo", image("x"), "replaces the listing's"],
+      ["revision", { dashboard: { title: "Demo 2" } }, "fields changed: title"],
+    ])("%s %j", (part, wanted, expected) => {
+      expect(detail(part, wanted)).toBe(expected);
+    });
+
+    it("says that a listing has no logo yet", () => {
+      expect(detail("logo", image("x"), none)).toBe("the listing has none");
     });
   });
 });

@@ -23,7 +23,7 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 
 - The served dashboard equals the uploaded file but for two top-level fields: `gnetId` becomes the dashboard's ID, and `description` the listing's description. So the action compares without them.
 - An identical file is not refused: it becomes a duplicate revision. So the action compares before it uploads.
-- A revision upload overwrites the listing's description with the file's top-level `description`, or empties it. So the action sends the description again afterwards.
+- A revision upload overwrites the listing's description with the file's top-level `description`, or empties it. So the action takes the file's description for the listing's, and when the file has none it sends the listing's again afterwards.
 - A dashboard in the resource model (`apiVersion`, `kind`, `spec`) is accepted, but stored with an empty description. So the action refuses it itself.
 - `GET /dashboards/<id>/revisions/<n>/download` counts as a download. Reading the listing does not, so the action takes the latest dashboard from the listing.
 
@@ -44,9 +44,10 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 ### Errors and limits
 
 - An error is JSON with `code`, `message` and `requestId`.
+- A token that grafana.com does not know answers `401 InvalidCredentials`, on a read as on a write. So a mistyped token fails the run before anything is sent.
 - No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
 - No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 
 ## Not verified
 
-The rate limits and the size limit of a logo.
+The rate limits, the size limit of a logo, and the answer to a token that lacks the scope or belongs to another organization.

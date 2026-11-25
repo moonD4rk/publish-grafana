@@ -103,6 +103,7 @@ jobs:
       - name: Run the action against the demo listing without a token
         uses: ./
         with:
+          dry-run: true
           dashboard-id: 26104
           dashboard-file: demo/dashboard.json
           readme-file: demo/README.md

@@ -11,6 +11,7 @@ const { PARTS } = await import("../src/plan.js");
 const removeWorkspace = createWorkspace({
   "dashboard.json": JSON.stringify(dashboard),
   "fixed.json": JSON.stringify({ panels: [{ datasource: { uid: "abc" } }] }),
+  "blank.json": JSON.stringify({ title: "Demo", description: " " }),
   "resource.json": JSON.stringify({ apiVersion: "v2", kind: "D", spec: {} }),
   "broken.json": "{",
   "README.md": "# Demo\n",
@@ -76,8 +77,24 @@ describe("readInputs", () => {
     expect(core.warning).not.toHaveBeenCalled();
   });
 
+  it("takes the description from the dashboard file when none is passed", () => {
+    const { wanted } = read({ "dashboard-file": "dashboard.json" });
+
+    expect(wanted.description).toBe("The description inside the file");
+  });
+
+  it.each([["fixed.json"], ["blank.json"]])(
+    "leaves the description alone when %s has none",
+    (file) => {
+      expect(read({ "dashboard-file": file }).wanted).not.toHaveProperty(
+        "description",
+      );
+    },
+  );
+
   it.each([
     ["no token", { name: "Demo" }, true],
+    ["no token and dry-run", { name: "Demo", "dry-run": "true" }, true],
     ["a token", { name: "Demo", token: "secret" }, false],
     [
       "a token and dry-run",
@@ -91,6 +108,23 @@ describe("readInputs", () => {
     ],
   ])("with %s, dryRun is %s", (_, inputs, dryRun) => {
     expect(read(inputs).dryRun).toBe(dryRun);
+  });
+
+  it("says that a run without a token is a dry run", () => {
+    read({ name: "Demo" });
+
+    expect(core.notice).toHaveBeenCalledWith(
+      expect.stringContaining("token is empty, so this is a dry run"),
+    );
+  });
+
+  it.each([
+    ["a dry run that was asked for", { name: "Demo", "dry-run": "true" }],
+    ["a run with a token", { name: "Demo", token: "secret" }],
+  ])("says nothing about %s", (_, inputs) => {
+    read(inputs);
+
+    expect(core.notice).not.toHaveBeenCalled();
   });
 
   it("masks the token", () => {
@@ -153,6 +187,10 @@ describe("readInputs", () => {
     [
       { name: "x", token: "t", "dry-run": "maybe" },
       "Input does not meet YAML 1.2: dry-run",
+    ],
+    [
+      { name: "x", "dry-run": "false" },
+      "token: it is empty, and dry-run: false asks to publish",
     ],
   ])("fails on %j", (inputs, message) => {
     expect(() => read(inputs)).toThrow(message);

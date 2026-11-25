@@ -8,7 +8,14 @@ jest.unstable_mockModule("@actions/core", () => core);
 const { run } = await import("../src/main.js");
 
 const removeWorkspace = createWorkspace({
-  "dashboard.json": JSON.stringify(dashboard),
+  "dashboard.json": JSON.stringify({
+    ...dashboard,
+    description: "Sample service dashboard",
+  }),
+  "described.json": JSON.stringify({
+    ...dashboard,
+    description: "A new description",
+  }),
   "README.md": "# publish-grafana demo\n",
   "overview.png": "overview",
   "requests.png": "requests",
@@ -66,7 +73,9 @@ describe("run", () => {
 
     expect(core.setFailed).not.toHaveBeenCalled();
     expect(outputs().changes).toBe("name,screenshots,categories");
-    expect(core.info).toHaveBeenCalledWith("screenshots: would publish");
+    expect(core.info).toHaveBeenCalledWith(
+      "screenshots: would publish (removes 1)",
+    );
   });
 
   it("fails on a category that grafana.com does not have", async () => {
@@ -107,8 +116,37 @@ describe("run", () => {
     expect(update[1].body.get("name")).toBe("Renamed");
     expect(core.setFailed).not.toHaveBeenCalled();
     expect(core.warning).not.toHaveBeenCalled();
-    expect(core.info).toHaveBeenCalledWith("name: published");
+    expect(core.info).toHaveBeenCalledWith(
+      'name: published ("publish-grafana demo" → "Renamed")',
+    );
     expect(outputs()).toMatchObject({ changed: true, changes: "name" });
+  });
+
+  it("publishes the description of the dashboard file", async () => {
+    let description = "Sample service dashboard";
+    const fetch = fakeFetch({
+      "/dashboards/26104": () => listing({ description }),
+      "POST /dashboards/26104": () => {
+        description = "A new description";
+        return {};
+      },
+    });
+    core.setInputs({
+      "dashboard-id": "26104",
+      "dashboard-file": "described.json",
+      token: "t",
+    });
+
+    await run({ fetch });
+
+    const update = fetch.mock.calls.find(([, { method }]) => method === "POST");
+    expect(update[1].body.get("description")).toBe("A new description");
+    expect(core.info).toHaveBeenCalledWith(
+      'the listing\'s description so far: "Sample service dashboard"',
+    );
+    expect(core.setFailed).not.toHaveBeenCalled();
+    expect(core.warning).not.toHaveBeenCalled();
+    expect(outputs()).toMatchObject({ changed: true, changes: "description" });
   });
 
   it("publishes nothing in a dry run with a token", async () => {
@@ -123,7 +161,26 @@ describe("run", () => {
     await run({ fetch });
 
     expect(fetch.mock.calls.map(([, { method }]) => method)).toEqual(["GET"]);
-    expect(core.info).toHaveBeenCalledWith("name: would publish");
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining("name: would publish"),
+    );
+    expect(core.notice).not.toHaveBeenCalled();
+  });
+
+  it("fails before any request when dry-run is false and the token is empty", async () => {
+    const fetch = grafana();
+    core.setInputs({
+      "dashboard-id": "26104",
+      name: "Renamed",
+      "dry-run": "false",
+    });
+
+    await run({ fetch });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining("token: it is empty"),
+    );
   });
 
   it("reports what was not published before it fails", async () => {
@@ -131,7 +188,9 @@ describe("run", () => {
 
     await run({ fetch: grafana() });
 
-    expect(core.info).toHaveBeenCalledWith("name: not published");
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining("name: not published"),
+    );
     expect(outputs().changed).toBe(false);
     expect(core.setFailed).toHaveBeenCalledWith(
       expect.stringContaining("answered 404 to POST /dashboards/26104"),
@@ -144,7 +203,9 @@ describe("run", () => {
     await run({ fetch: grafana() });
 
     expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining("answered 404 to GET /dashboards/404"),
+      expect.stringContaining(
+        "dashboard-id: grafana.com finds no dashboard 404",
+      ),
     );
   });
 

@@ -8,7 +8,7 @@ branding:
 
 inputs:
   dashboard-id:
-    description: The dashboard's ID on grafana.com
+    description: "The dashboard's ID on grafana.com: the number in its URL"
     required: true
   token:
     description: A Grafana Cloud access policy token with the dashboards:write scope. Without it the run is a dry run
@@ -20,7 +20,7 @@ inputs:
     description: The name on the dashboard's page
     required: false
   description:
-    description: The short description on the dashboard's page
+    description: "The short description on the dashboard's page. Default: the description inside the dashboard file"
     required: false
   readme-file:
     description: A Markdown file for the page's README
@@ -44,9 +44,8 @@ inputs:
     description: A text on how to set the collector up
     required: false
   dry-run:
-    description: true publishes nothing and reports what would change
+    description: true publishes nothing and reports what would change. false fails when the token is missing
     required: false
-    default: "false"
 
 outputs:
   changed:

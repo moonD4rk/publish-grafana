@@ -6,14 +6,18 @@ const ATTEMPTS = 3;
 const READ_TIMEOUT_MS = 30_000;
 const WRITE_TIMEOUT_MS = 120_000;
 
+const TOKEN_HINTS = {
+  401: "token: grafana.com does not accept it, so it may be mistyped, expired, revoked or too new to work yet",
+  403: "token: grafana.com does not let it do this, so its access policy may lack the dashboards:write scope or belong to another organization than the dashboard",
+};
+
 export class GrafanaError extends Error {
-  constructor(method, path, status, body) {
+  constructor(method, path, status, body, hint) {
     const { code, message, requestId } = body ?? {};
     const detail = [code, message].filter(Boolean).join(": ") || "no details";
     const request = requestId ? ` (request ${requestId})` : "";
-    super(
-      `grafana.com answered ${status} to ${method} ${path}: ${detail}${request}`,
-    );
+    const answer = `grafana.com answered ${status} to ${method} ${path}: ${detail}${request}`;
+    super(hint ? `${hint}; ${answer}` : answer);
     this.name = "GrafanaError";
     this.status = status;
     this.code = code;
@@ -66,7 +70,8 @@ export function createClient({
     core.debug(`${method} ${path} -> ${response.status}`);
     if (!response.ok) {
       const answer = await response.json().catch(() => null);
-      throw new GrafanaError(method, path, response.status, answer);
+      const hint = token && TOKEN_HINTS[response.status];
+      throw new GrafanaError(method, path, response.status, answer, hint);
     }
     return response;
   }

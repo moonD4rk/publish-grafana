@@ -80,6 +80,26 @@ describe("readListing", () => {
     expect(grafana.logo).not.toHaveBeenCalled();
   });
 
+  it("names the input when grafana.com finds no such dashboard", async () => {
+    const grafana = client();
+    grafana.listing.mockRejectedValue(
+      Object.assign(new Error("answered 404"), { status: 404 }),
+    );
+
+    await expect(readListing(grafana, "404", {})).rejects.toThrow(
+      "dashboard-id: grafana.com finds no dashboard 404",
+    );
+  });
+
+  it("passes on any other failure to read the listing", async () => {
+    const grafana = client();
+    grafana.listing.mockRejectedValue(new Error("got no answer"));
+
+    await expect(readListing(grafana, "26104", {})).rejects.toThrow(
+      "got no answer",
+    );
+  });
+
   it("says so when the answer is not a listing", async () => {
     const reading = readListing(client({ id: 26104 }), "26104", {});
 

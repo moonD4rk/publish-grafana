@@ -13,7 +13,7 @@ One step makes one listing match the repository:
 3. Compare it with each part passed as an input.
 4. Publish only the parts that differ: the dashboard as a new revision, then everything else in one listing update.
 5. Read the listing back, and warn when grafana.com holds something else than what was sent, since the next run would then publish it again.
-6. Report what changed, in the outputs and the job summary. A run that fails halfway still reports what it published.
+6. Report what changed and how each part differed, in the outputs and the job summary. A run that fails halfway still reports what it published.
 
 | Part | Inputs | Compared |
 | --- | --- | --- |
@@ -28,10 +28,11 @@ One step makes one listing match the repository:
 
 1. **The repository is the source.** After a run, each managed part equals what the repository holds.
 2. **Idempotent.** A part that already matches is not published, so the action is safe on every push and the revision number moves only when the JSON changed.
-3. **Opt-in by part.** An input that is not passed is a part that is never touched.
-4. **Safe without a token.** With no token, or with `dry-run: true`, the run only reads and reports what it would publish, so pull requests from forks can run it.
-5. **A write is sent once.** When its outcome is unknown, the action reads the listing again and decides from what it finds. Only reads are retried.
-6. **The token goes to grafana.com only.** It is masked, and it never reaches the log, the summary or an output.
+3. **Opt-in by part.** An input that is not passed is a part that is never touched. The description is the one exception: grafana.com serves the listing's description inside the dashboard, so without `description` the dashboard file's own is published, and a file without one leaves the listing's as it is.
+4. **Safe without a token.** With no token, or with `dry-run: true`, the run only reads and reports what it would publish, so pull requests from forks can run it. It says so in a notice, and `dry-run: false` makes a missing token fail the run instead.
+5. **An error names its cause.** A failure says which input is wrong and what to do about it, also when grafana.com refuses the token or finds no such dashboard.
+6. **A write is sent once.** When its outcome is unknown, the action reads the listing again and decides from what it finds. Only reads are retried.
+7. **The token goes to grafana.com only.** It is masked, and it never reaches the log, the summary or an output.
 
 ## Out of scope
 
