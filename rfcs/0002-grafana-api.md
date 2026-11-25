@@ -30,7 +30,8 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 ### Listing update
 
 - It is partial: a part that is left out stays as it is. A request that changes nothing answers `409 InvalidArgument`, "Nothing to update".
-- Its answer can still show the old `screenshots` and `hasLogo`. A read right after shows the new state.
+- Its answer can still show the old `screenshots` and `hasLogo`.
+- A read can still show the old listing for a moment after the answer. With reads sent every 50 ms around 9 updates, the new state showed up from 0.2 s before the answer to 0.15 s after it, later when the update carried screenshots. In 15 updates, every read that reached grafana.com 0.2 s or more after the answer showed it. A GitHub runner reads sooner: one run warned about a README that the next run found in place. So the action reads a difference again, after 1, 2 and 4 seconds, before it warns or takes a write for lost.
 - Screenshots are listed in upload order and cannot be reordered, and the same file uploaded twice makes two images. So a new order means removing images and uploading them again.
 - A screenshot over 1 MiB answers `413 PayloadTooLarge`.
 - A PNG, JPEG or GIF screenshot is accepted and served byte for byte. A WebP one, lossless or lossy, answers `409 InvalidArgument`, "Files extension and mime-type do not match", and changes nothing. So the action refuses a WebP file itself.
@@ -47,9 +48,10 @@ Paths are under `https://grafana.com/api`. A write needs `Authorization: Bearer 
 - An error is JSON with `code`, `message` and `requestId`.
 - A token that grafana.com does not know answers `401 InvalidCredentials`, on a read as on a write. So a mistyped token fails the run before anything is sent.
 - A token with the `dashboards:write` scope alone reads the listing, publishes a revision, updates the listing's texts, removes a screenshot, uploads one and replaces the logo. So the action asks for no other scope.
-- No answer carries a rate-limit header, and 51 writes in 30 minutes were all accepted.
+- Reads are limited: after about 350 within a minute from one address, one answered `429`. A run sends far fewer, and tries such a read again.
+- No accepted request carried a rate-limit header, and 51 writes in 30 minutes were all accepted.
 - No read is answered with a redirect, so the action refuses one rather than follow it with the token.
 
 ## Not verified
 
-The rate limits, the size limit of a logo, and the answer to a token that lacks the scope or belongs to another organization.
+The exact rate limits and what a `429` says about them, the size limit of a logo, and the answer to a token that lacks the scope or belongs to another organization.
