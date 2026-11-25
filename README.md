@@ -72,25 +72,18 @@ Export the dashboard from Grafana and commit the file. In the dashboard's toolba
 <details>
 <summary>Preview in pull requests</summary>
 
-Run the step on pull requests too. There it publishes nothing, and its job summary shows what merging would publish:
+Add `pull_request` to the triggers. In a pull request the step publishes nothing, and its job summary shows what merging would publish. It needs no token there, so it also works in a pull request from a fork, which cannot read the secret.
 
 ```yaml
 on:
   pull_request:
   push:
     branches: [main]
+
+concurrency: publish-grafana-${{ github.ref }}
 ```
 
-```yaml
-- uses: moond4rk/publish-grafana@v1
-  with:
-    token: ${{ secrets.GRAFANA_COM_TOKEN }}
-    dry-run: ${{ github.event_name == 'pull_request' }}
-    dashboard-id: 12345
-    dashboard-file: grafana/dashboard.json
-```
-
-A dry run needs no token, so this also works in a pull request from a fork, which cannot read the secret.
+With the ref in its concurrency group, a preview never takes the place of a publish that is waiting.
 
 </details>
 
@@ -148,7 +141,7 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 | `collector-type` | Under **Collector/Agent Details**, the collector that feeds the dashboard: `collectd`, `nodeExporter`, `Snap`, `Telegraf`, `Beats`, `Icinga` or `Other` |
 | `collector-plugins` | The collector's plugins, one per line |
 | `collector-config` | A text on how to set the collector up |
-| `dry-run` | `true` publishes nothing and reports what would change, and needs no token. Default: `false` |
+| `dry-run` | `true` publishes nothing and reports what would change, and needs no token. Default: `true` in a pull request or a merge queue, `false` otherwise |
 
 ## Outputs
 
@@ -162,7 +155,8 @@ The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs
 ## Good to know
 
 - **Safe on every push.** Only what changed is published, so an unchanged dashboard never gets a new revision.
-- **A missing token fails the run.** So a secret with a mistyped name shows on the first run. Only a dry run needs no token, so pull requests from forks can run one.
+- **A pull request only previews.** There the run is a dry run unless you pass `dry-run: false`, so a branch is not published before it is merged.
+- **A missing token fails the run.** So a secret with a mistyped name shows on the first run. Only a dry run needs no token.
 - **The token goes to grafana.com only.** It is masked in the log, and the action has no other dependency at run time than GitHub's own toolkit.
 - **One dashboard per step.** For several, repeat the step or use a matrix.
 - **The catalog only.** It does not create a dashboard, and it does not deploy one to a Grafana instance.

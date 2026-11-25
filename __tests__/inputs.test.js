@@ -32,6 +32,10 @@ const read = (inputs) => {
 };
 
 describe("readInputs", () => {
+  beforeEach(() => {
+    delete process.env.GITHUB_EVENT_NAME;
+  });
+
   it("reads every part that was passed", () => {
     const { dashboardId, wanted } = read({
       "dashboard-file": "dashboard.json",
@@ -103,6 +107,50 @@ describe("readInputs", () => {
     ],
   ])("with %s, dryRun is %s", (_, inputs, dryRun) => {
     expect(read({ name: "Demo", ...inputs }).dryRun).toBe(dryRun);
+  });
+
+  it.each([
+    ["pull_request", { token: "secret" }, true],
+    ["pull_request", {}, true],
+    ["pull_request_target", { token: "secret" }, true],
+    ["merge_group", { token: "secret" }, true],
+    ["pull_request", { "dry-run": "false", token: "secret" }, false],
+    ["push", { token: "secret" }, false],
+    ["schedule", { "dry-run": "true" }, true],
+  ])("on %s with %j, dryRun is %s", (event, inputs, dryRun) => {
+    process.env.GITHUB_EVENT_NAME = event;
+
+    expect(read({ name: "Demo", "dry-run": "", ...inputs }).dryRun).toBe(
+      dryRun,
+    );
+  });
+
+  it("says why a run in a pull request publishes nothing", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    read({ name: "Demo", "dry-run": "" });
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "the event is pull_request, so nothing is published",
+      ),
+    );
+  });
+
+  it("says nothing about a dry run that was asked for", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    read({ name: "Demo", "dry-run": "true" });
+
+    expect(core.info).not.toHaveBeenCalled();
+  });
+
+  it("fails in a pull request that asks to publish without a token", () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+
+    expect(() => read({ name: "Demo", "dry-run": "false" })).toThrow(
+      "token: it is empty, so the run cannot publish",
+    );
   });
 
   it("masks the token", () => {

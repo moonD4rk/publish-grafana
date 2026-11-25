@@ -47,6 +47,10 @@ const grafana = (answer = listing()) =>
 const outputs = () => Object.fromEntries(core.setOutput.mock.calls);
 
 describe("run", () => {
+  beforeEach(() => {
+    delete process.env.GITHUB_EVENT_NAME;
+  });
+
   afterEach(() => {
     delete process.env.GITHUB_STEP_SUMMARY;
   });
@@ -173,6 +177,20 @@ describe("run", () => {
     expect(core.info).toHaveBeenCalledWith(
       expect.stringContaining("name: would publish"),
     );
+  });
+
+  it("only previews in a pull request, with or without a token", async () => {
+    process.env.GITHUB_EVENT_NAME = "pull_request";
+    const fetch = grafana();
+    core.setInputs({ "dashboard-id": "26104", name: "Renamed", token: "t" });
+
+    await run({ fetch });
+
+    expect(fetch.mock.calls.map(([, { method }]) => method)).toEqual(["GET"]);
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining("name: would publish"),
+    );
+    expect(core.setFailed).not.toHaveBeenCalled();
   });
 
   it("fails before any request when the token is empty", async () => {

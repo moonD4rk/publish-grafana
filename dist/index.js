@@ -29660,6 +29660,7 @@ const SCREENSHOT_TYPES = {
   ".webp": "image/webp",
 };
 const MAX_SCREENSHOT_BYTES = 1024 * 1024;
+const BEFORE_A_MERGE = /^(pull_request|merge_group)/;
 
 const workspace = () => process.env.GITHUB_WORKSPACE || process.cwd();
 
@@ -29774,8 +29775,16 @@ const SOURCES = {
 };
 
 function readDryRun(token) {
-  const dryRun =
-    getInput("dry-run") !== "" && getBooleanInput("dry-run");
+  const event = process.env.GITHUB_EVENT_NAME ?? "";
+  const unset = getInput("dry-run") === "";
+  const dryRun = unset
+    ? BEFORE_A_MERGE.test(event)
+    : getBooleanInput("dry-run");
+  if (unset && dryRun) {
+    info(
+      `dry-run is not set and the event is ${event}, so nothing is published. To publish from it, pass dry-run: false`,
+    );
+  }
   if (!dryRun && !token) {
     throw new Error(
       "token: it is empty, so the run cannot publish. Check the secret's name, and that this run may read it: a pull request from a fork may not. A run with dry-run: true needs no token",

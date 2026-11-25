@@ -44,9 +44,8 @@ inputs:
     description: A text on how to set the collector up
     required: false
   dry-run:
-    description: true publishes nothing and reports what would change, and needs no token
+    description: "true publishes nothing and reports what would change, and needs no token. Default: true in a pull request or a merge queue, false otherwise"
     required: false
-    default: "false"
 
 outputs:
   changed:
