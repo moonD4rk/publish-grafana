@@ -8,12 +8,17 @@ See it at work: this action publishes the [demo dashboard](https://grafana.com/g
 
 ## Usage
 
+Save this as `.github/workflows/publish-grafana.yml`:
+
 ```yaml
 on:
   push:
     branches: [main]
 
-concurrency: publish-grafana
+permissions:
+  contents: read
+
+concurrency: publish-grafana # one publish at a time
 
 jobs:
   publish:
@@ -22,19 +27,47 @@ jobs:
       - uses: actions/checkout@v7
       - uses: moond4rk/publish-grafana@v1
         with:
-          token: ${{ secrets.GRAFANA_COM_TOKEN }}
-          dashboard-id: 12345
-          dashboard-file: grafana/dashboard.json
+          token: ${{ secrets.GRAFANA_COM_TOKEN }} # a Grafana Cloud token
+          dashboard-id: 12345 # the number in the dashboard's URL
+          dashboard-file: grafana/dashboard.json # exported from Grafana
           readme-file: grafana/README.md
           screenshots: grafana/screenshots/*.png
 ```
 
-Before the first run:
+[Setup](#setup) says where the first three values come from. With them alone, the dashboard JSON is kept up to date, and each further input is one more part of the dashboard's page. A part you pass is kept equal to the repository. A part you leave out stays as it is on grafana.com.
 
-1. Upload the dashboard once on grafana.com, at `grafana.com/orgs/<your-org>/dashboards`. Its ID is the number in its URL: `grafana.com/grafana/dashboards/12345-…`.
-2. Create the token in the Grafana Cloud portal: select your organization, then **Security**, **Access Policies** and **Create access policy**. Under **Add scope**, add `dashboards:write`; it needs no other scope. On the new policy, select **Add token**, and save the token as the repository secret `GRAFANA_COM_TOKEN`. Grafana's own guide is [here](https://grafana.com/docs/grafana-cloud/security-and-account-management/authentication-and-permissions/access-policies/create-access-policies/).
+A run publishes only what differs, so it is safe on every push. Its job summary shows what it did:
 
-Besides `dashboard-id`, each input is one part of the page. Pass the parts you want kept up to date; the rest stay as they are on grafana.com. The job summary shows what each run published, and how each part differed.
+| Part        | Outcome   | Details                                            |
+| ----------- | --------- | -------------------------------------------------- |
+| revision    | published | panels changed: Requests / s; panels added: Errors |
+| readme      | published | +3 -1 lines                                        |
+| screenshots | unchanged |                                                    |
+
+## Setup
+
+### Dashboard ID
+
+The action updates a dashboard that is already on grafana.com, so upload it there once by hand: sign in, open **My dashboards** and select **Upload dashboard**. Its ID is the number in its URL: `26104` in `grafana.com/grafana/dashboards/26104-publish-grafana-demo`.
+
+### Token
+
+A Grafana Cloud access policy token. An admin of the organization that owns the dashboard creates it:
+
+1. Sign in to the Grafana Cloud portal at grafana.com and select the organization. Then open **Security**, **Access Policies** and **Create access policy**.
+2. Fill in the form:
+   - **Display name**: any name, such as `publish-grafana`. **Name** follows it.
+   - **Realms**: the organization (all stacks).
+   - **Scopes**: none of those listed. Under **Add scope**, add `dashboards:write`, the only scope the action needs.
+   - **Label selectors** and **IP ranges**: empty.
+3. On the new policy, select **Add token** and give it any name. An expiration date is optional: once it passes, runs fail until the secret holds a new token.
+4. Copy the token, which is shown only once. In the GitHub repository, open **Settings**, **Secrets and variables**, **Actions** and **New repository secret**, and save it as `GRAFANA_COM_TOKEN`.
+
+Grafana's guide shows these steps with pictures: [Create access policies and tokens](https://grafana.com/docs/grafana-cloud/security-and-account-management/authentication-and-permissions/access-policies/create-access-policies/).
+
+### Dashboard file
+
+Export the dashboard from Grafana and commit the file. In the dashboard's toolbar, select **Export** and **Export as code**, choose the **Classic** model and switch on **Share dashboard with another instance**. grafana.com takes the Classic model only, and with the switch on, whoever imports the dashboard chooses their own data source. Grafana's guide is [Export a dashboard as code](https://grafana.com/docs/grafana/latest/dashboards/share-dashboards-panels/#export-a-dashboard-as-code).
 
 ## Recipes
 
@@ -101,21 +134,23 @@ jobs:
 
 ## Inputs
 
+The names in bold are the fields of the dashboard's edit page, `grafana.com/orgs/<your-org>/dashboards/<id>/edit`.
+
 | Input | Description |
 | --- | --- |
-| `dashboard-id` | **Required.** The dashboard's ID on grafana.com |
-| `token` | A Grafana Cloud access policy token with the `dashboards:write` scope. Without it the run is a dry run |
-| `dashboard-file` | The dashboard JSON, published as a new revision when it changed |
-| `name` | The name on the dashboard's page |
-| `description` | The short description on the dashboard's page. Default: the `description` inside the dashboard file |
-| `readme-file` | A Markdown file for the page's README |
-| `screenshots` | Image files or globs, one per line, in the order to show them |
-| `logo` | A PNG or JPEG file for the logo |
-| `categories` | Category slugs, one per line, such as `docker` |
-| `collector-type` | The collector that feeds the dashboard: `collectd`, `nodeExporter`, `Snap`, `Telegraf`, `Beats`, `Icinga` or `Other` |
+| `dashboard-id` | **Required.** The dashboard's [ID](#dashboard-id) on grafana.com |
+| `token` | The [token](#token) of an access policy with the `dashboards:write` scope. Without it the run is a dry run |
+| `dashboard-file` | The [dashboard JSON](#dashboard-file), published as a new revision when it changed. Its `__inputs` are the page's **Data source config** |
+| `name` | The **Dashboard Name** |
+| `description` | The **Short Description**. Default: the `description` inside the dashboard file |
+| `readme-file` | A Markdown file for the **README** |
+| `screenshots` | The **Screenshots**: image files or globs, one per line, in the order to show them. PNG, JPEG, GIF or WebP, 1 MiB each at most |
+| `logo` | A PNG or JPEG file for the **Logo** |
+| `categories` | The **Categories**: slugs from [grafana.com/api/categories](https://grafana.com/api/categories), one per line, such as `docker` |
+| `collector-type` | Under **Collector/Agent Details**, the collector that feeds the dashboard: `collectd`, `nodeExporter`, `Snap`, `Telegraf`, `Beats`, `Icinga` or `Other` |
 | `collector-plugins` | The collector's plugins, one per line |
 | `collector-config` | A text on how to set the collector up |
-| `dry-run` | `true` publishes nothing and reports what would change. `false` fails when the token is missing |
+| `dry-run` | Default: publish with a token, dry run without one. `true` never publishes and reports what would change. `false` fails when the token is missing |
 
 ## Outputs
 

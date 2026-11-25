@@ -8,7 +8,7 @@ branding:
 
 inputs:
   dashboard-id:
-    description: The dashboard's ID on grafana.com
+    description: "The dashboard's ID on grafana.com: the number in its URL"
     required: true
   token:
     description: A Grafana Cloud access policy token with the dashboards:write scope. Without it the run is a dry run
